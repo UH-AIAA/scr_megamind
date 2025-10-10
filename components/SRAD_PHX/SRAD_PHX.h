@@ -10,8 +10,7 @@
 #include <Adafruit_BMP3XX.h>
 #include <Adafruit_LSM6DSO32.h>
 
-struct TelemetryData { // Easy transfer can only work with basic data types 
-                      //(int, float, etc.. but not vector3 stuff due to unpredictability)
+struct TelemetryData { 
     float lsm_gyro_x, lsm_gyro_y, lsm_gyro_z;
     float lsm_acc_x, lsm_acc_y, lsm_acc_z;
     float adxl_acc_x, adxl_acc_y, adxl_acc_z;
@@ -33,29 +32,7 @@ enum STATES {
     POST_LANDED = 4,
 };
 
-class FLIGHT {
-    public:
-        // three stack initial constructor
-        FLIGHT(int a1, int a2, int l1, int l2, String h, Adafruit_GPS& g, TelemetryData& o) 
-        : accel_liftoff_threshold(a1), accel_liftoff_time_threshold(a2), 
-        land_time_threshold(l1), land_altitude_threshold(l2), data_header(h), last_gps(&g), data(o) {
-            STATE = STATES::PRE_NO_CAL;
-            runningTime_ms = 0;
-
-            // initialize arrays!
-            altReadings_ind = 0;
-            for(int i = 0; i < 10; i++) {
-                altReadings[i] = 0;
-            }
-        }
-
-        // UART Constructor
-        FLIGHT(String h, Adafruit_GPS& g, TelemetryData& o) 
-        : data_header(h), last_gps(&g), data(o) {
-            STATE = STATES::PRE_NO_CAL;
-            runningTime_ms = 0;
-        }
-
+struct FLIGHT {
         // SPI Constructor
         FLIGHT(int a1, int a2, int l1, int l2, String h, TelemetryData& o) 
         : accel_liftoff_threshold(a1), accel_liftoff_time_threshold(a2), 
@@ -73,7 +50,7 @@ class FLIGHT {
 
         // high level functions
         void calculateState();
-        uint8_t read_LSM(Adafruit_LSM6DSO32 &);
+        uint8_t read_LSM(Adafruit_LSM6DSO32 &); 
         uint8_t read_BMP(Adafruit_BMP3XX &);
         uint8_t read_ADXL(Adafruit_ADXL375 &);
         uint8_t read_BNO(Adafruit_BNO055 &);
@@ -120,9 +97,9 @@ class FLIGHT {
         bool calibrated = false;
         STATES STATE;
 
-        // EasyTransfer ET;
-        TelemetryData* txData;
-        TelemetryData* rxData;
+        // // EasyTransfer ET;
+        // TelemetryData* txData;
+        // TelemetryData* rxData;
         TelemetryData data;
 };
 
