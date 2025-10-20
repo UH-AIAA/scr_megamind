@@ -65,6 +65,16 @@ Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
 
+//System Data
+struct SystemData {
+    int sensor_status[10];
+    float latitude;
+    float longitude;
+    // ... add any other data you need to store ...
+};
+
+SystemData myData;
+
 void init_spi() {
     // set outputs/inputs for software spi
     gpio_set_direction(GPIO_NUM_12, GPIO_MODE_OUTPUT);
@@ -81,6 +91,49 @@ void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
 }
 
+void GPS_task(void *pvParameter){
+    TickType_t start_time,end_time,elapsed_time;
+
+    SystemData *data = (SystemData *)pvParameter;
+    
+
+    uint32_t startms = millis();
+    uint32_t timeout = startms + 150;
+
+    start_time = xTaskGetTickCount();
+
+    while (millis() < timeout) {
+        while (GPS.available()) {
+            GPS.read();
+            //choke point is from GPS.read();
+            //can only read 1 byte at a time
+
+            if (GPS.newNMEAreceived()) {
+                // Serial.println(GPS.lastNMEA());
+                if (!GPS.parse(GPS.lastNMEA())) {
+                    continue;
+                }
+
+                if (GPS.fix && GPS.satellites > 0) {
+                    // Serial.print("Satellites: ");
+                    // Serial.println(GPS.satellites);
+                    //data.sensor_status[4] = 0;
+                    data->sensor_status[4] = 0; // 0 = OK
+                    data->latitude = GPS.latitude;
+                    
+                    printf("Latitude: %f\n", data->latitude);
+
+                    end_time = xTaskGetTickCount();
+                    elapsed_time = end_time - start_time;
+                    printf("Task took %lu ticks to complete.\n\n", (unsigned long)elapsed_time);
+
+                    break;
+                }
+            }
+        }
+    }
+}
+
 extern "C" void app_main()
 {
     // init Arduino Framework from ESP HAL
@@ -94,4 +147,16 @@ extern "C" void app_main()
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+
+    xTaskCreate(
+        GPS_task,     // Arg 1: The function to run
+        "GPS Task",   // Arg 2: A name for debugging
+        2048,         // Arg 3: Stack size (memory for the task)
+        &myData,      // Arg 4: The parameter to pass to the task
+        5,            // Arg 5: The task's priority
+        NULL          // Arg 6: The task handle (NULL is fine)
+    );
+
+
+    
 }
