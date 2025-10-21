@@ -92,47 +92,51 @@ void init_I2C() {
 }
 
 void GPS_task(void *pvParameter){
+
     TickType_t start_time,end_time,elapsed_time;
 
-    SystemData *data = (SystemData *)pvParameter;
-    
+        uint32_t startms = millis();
+        uint32_t timeout = startms + 1000;
 
-    uint32_t startms = millis();
-    uint32_t timeout = startms + 150;
+        start_time = xTaskGetTickCount();
 
-    start_time = xTaskGetTickCount();
+        while (millis() < timeout) {
+            while (GPS.available()) {
+                GPS.read();
+                //choke point is from GPS.read();
+                //can only read 1 byte at a time
 
-    while (millis() < timeout) {
-        while (GPS.available()) {
-            GPS.read();
-            //choke point is from GPS.read();
-            //can only read 1 byte at a time
+                if (GPS.newNMEAreceived()) {
+                    // Serial.println(GPS.lastNMEA());
+                    if (!GPS.parse(GPS.lastNMEA())) {
+                        continue;
+                    }
 
-            if (GPS.newNMEAreceived()) {
-                // Serial.println(GPS.lastNMEA());
-                if (!GPS.parse(GPS.lastNMEA())) {
-                    continue;
-                }
+                    if (GPS.fix && GPS.satellites > 0) {
+                        // Serial.print("Satellites: ");
+                        // Serial.println(GPS.satellites);
+                        //data.sensor_status[4] = 0;
+                        myData.sensor_status[4] = 0; // 0 = OK
+                        myData.latitude = GPS.latitude;
+                        
+                        printf("Latitude: %f\n", GPS.latitude);
 
-                if (GPS.fix && GPS.satellites > 0) {
-                    // Serial.print("Satellites: ");
-                    // Serial.println(GPS.satellites);
-                    //data.sensor_status[4] = 0;
-                    data->sensor_status[4] = 0; // 0 = OK
-                    data->latitude = GPS.latitude;
-                    
-                    printf("Latitude: %f\n", data->latitude);
+                        end_time = xTaskGetTickCount();
+                        elapsed_time = end_time - start_time;
+                        printf("Task took %lu ticks to complete.\n\n", (unsigned long)elapsed_time);
 
-                    end_time = xTaskGetTickCount();
-                    elapsed_time = end_time - start_time;
-                    printf("Task took %lu ticks to complete.\n\n", (unsigned long)elapsed_time);
-
-                    break;
+                        break;
+                    }
                 }
             }
         }
-    }
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelete(NULL);
+    
 }
+
+
+
 
 extern "C" void app_main()
 {
@@ -151,9 +155,9 @@ extern "C" void app_main()
     xTaskCreate(
         GPS_task,     // Arg 1: The function to run
         "GPS Task",   // Arg 2: A name for debugging
-        2048,         // Arg 3: Stack size (memory for the task)
-        &myData,      // Arg 4: The parameter to pass to the task
-        5,            // Arg 5: The task's priority
+        5000,         // Arg 3: Stack size (memory for the task)
+        NULL,         // Arg 4: The parameter to pass to the task
+        3,            // Arg 5: The task's priority
         NULL          // Arg 6: The task handle (NULL is fine)
     );
 
