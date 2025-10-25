@@ -65,15 +65,14 @@ Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
 
-//System Data
-struct SystemData {
-    int sensor_status[10];
-    float latitude;
-    float longitude;
-    // ... add any other data you need to store ...
-};
+// //System Data
+// struct SystemData {
+//     int sensor_status[10];
+//     float latitude;
+//     float longitude;
+//     // ... add any other data you need to store ...
+// };
 
-SystemData myData;
 
 void init_spi() {
     // set outputs/inputs for software spi
@@ -88,15 +87,16 @@ void init_spi() {
 }
 
 void init_I2C() {
-    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.begin(I2C_SDASS, I2C_SCL);
 }
 
 void GPS_task(void *pvParameter){
 
-    TickType_t start_time,end_time,elapsed_time;
+    while(true){
+        TickType_t start_time,end_time,elapsed_time;
 
         uint32_t startms = millis();
-        uint32_t timeout = startms + 1000;
+        uint32_t timeout = startms + 150;
 
         start_time = xTaskGetTickCount();
 
@@ -116,23 +116,18 @@ void GPS_task(void *pvParameter){
                         // Serial.print("Satellites: ");
                         // Serial.println(GPS.satellites);
                         //data.sensor_status[4] = 0;
-                        myData.sensor_status[4] = 0; // 0 = OK
-                        myData.latitude = GPS.latitude;
-                        
                         printf("Latitude: %f\n", GPS.latitude);
 
                         end_time = xTaskGetTickCount();
                         elapsed_time = end_time - start_time;
                         printf("Task took %lu ticks to complete.\n\n", (unsigned long)elapsed_time);
-
-                        break;
+                        return;
                     }
                 }
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        vTaskDelete(NULL);
     
+    }
 }
 
 
