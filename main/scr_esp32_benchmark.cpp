@@ -26,7 +26,6 @@
 
 // SRAD Imports
 #include "SRAD_PHX.h"
-#include <algorithm>
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
