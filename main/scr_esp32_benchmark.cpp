@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <utility/imumaths.h>
 
 #include "esp_system.h"
 #include "driver/gpio.h"
@@ -27,6 +26,7 @@
 
 // SRAD Imports
 #include "SRAD_PHX.h"
+#include <algorithm>
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -65,15 +65,6 @@ Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
 
-// //System Data
-// struct SystemData {
-//     int sensor_status[10];
-//     float latitude;
-//     float longitude;
-//     // ... add any other data you need to store ...
-// };
-
-
 void init_spi() {
     // set outputs/inputs for software spi
     gpio_set_direction(GPIO_NUM_12, GPIO_MODE_OUTPUT);
@@ -87,18 +78,19 @@ void init_spi() {
 }
 
 void init_I2C() {
-    Wire.begin(I2C_SDASS, I2C_SCL);
+    Wire.begin(I2C_SDA, I2C_SCL);
+
+    // GPS Setup
+    GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
+    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ);
+    GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
 }
 
 void GPS_task(void *pvParameter){
 
     while(true){
-        TickType_t start_time,end_time,elapsed_time;
-
         uint32_t startms = millis();
-        uint32_t timeout = startms + 150;
-
-        start_time = xTaskGetTickCount();
+        uint32_t timeout = startms + 200;
 
         while (millis() < timeout) {
             while (GPS.available()) {
@@ -107,26 +99,29 @@ void GPS_task(void *pvParameter){
                 //can only read 1 byte at a time
 
                 if (GPS.newNMEAreceived()) {
-                    // Serial.println(GPS.lastNMEA());
                     if (!GPS.parse(GPS.lastNMEA())) {
                         continue;
                     }
 
                     if (GPS.fix && GPS.satellites > 0) {
-                        // Serial.print("Satellites: ");
-                        // Serial.println(GPS.satellites);
-                        //data.sensor_status[4] = 0;
+                        printf("Satellites: %i\n", GPS.satellites);
                         printf("Latitude: %f\n", GPS.latitude);
 
-                        end_time = xTaskGetTickCount();
-                        elapsed_time = end_time - start_time;
-                        printf("Task took %lu ticks to complete.\n\n", (unsigned long)elapsed_time);
-                        return;
+                        // if we found data, go to end of function
+                        // we don't want to print out the same data multiple times
+                        goto end;
                     }
                 }
             }
         }
-    
+
+        end:
+            uint32_t endms = millis();
+            uint32_t spentms = endms - startms;
+            printf("Millis: %lu\n", endms);
+            printf("Task took %lu ms to complete.\n\n", spentms);
+            uint32_t delayms = std::min(200 - spentms, static_cast<uint32_t>(10));
+            vTaskDelay(delayms);
     }
 }
 
