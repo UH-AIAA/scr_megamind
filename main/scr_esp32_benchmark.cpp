@@ -95,3 +95,29 @@ extern "C" void app_main()
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 }
+
+void ADXL375(void *pvParameter) {
+
+    while(1) {
+    //ADXL already initialized in previous code?
+        //check ADXL connection and yield to other tasks if connection bad
+        
+        //Taking the time since activation of sensor
+        TickType_T uptime = xTaskGetTickCount()
+
+        sensors_event_t acceleration;
+        //stores data from the sensor into the sensor event variable "accelration"
+        ADXL.getevent(%acceleration);
+        
+        printf("ADXL Uptime: %lu [ms]\n",uptime);
+        //Display the results (acceleration is measured in m/s^2)
+        printf("\nX: %f [m/s^2]\n",event.accelration.x);
+        printf("Y: %f [m/s^2]\n",event.accelration.y);
+        printf("Z: %f [m/s^2]\n",event.accelration.z);
+
+        //I believe the delay function in comment below is for arduino
+        //delay(500);
+        //delay 1 tick
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
