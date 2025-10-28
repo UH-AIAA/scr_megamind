@@ -103,21 +103,27 @@ void ADXL375(void *pvParameter) {
         //check ADXL connection and yield to other tasks if connection bad
         
         //Taking the time since activation of sensor
-        TickType_T uptime = xTaskGetTickCount()
+        TickType_t uptime = xTaskGetTickCount();
 
-        sensors_event_t acceleration;
+        sensors_event_t event;
         //stores data from the sensor into the sensor event variable "accelration"
-        ADXL.getevent(%acceleration);
+        if(!ADXL.getEvent(&event)) {
+            taskYIELD();
+        }
         
-        printf("ADXL Uptime: %lu [ms]\n",uptime);
-        //Display the results (acceleration is measured in m/s^2)
-        printf("\nX: %f [m/s^2]\n",event.accelration.x);
-        printf("Y: %f [m/s^2]\n",event.accelration.y);
-        printf("Z: %f [m/s^2]\n",event.accelration.z);
+
+        #ifdef DEBUG
+            printf("ADXL Uptime: %lu [ms]\n",uptime);
+            //Display the results (acceleration is measured in m/s^2)
+
+            printf("\nX: %f [m/s^2]\n",event.acceleration.x);
+            printf("Y: %f [m/s^2]\n",event.acceleration.y);
+            printf("Z: %f [m/s^2]\n",event.acceleration.z);
+        #endif
 
         //I believe the delay function in comment below is for arduino
         //delay(500);
         //delay 1 tick
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
