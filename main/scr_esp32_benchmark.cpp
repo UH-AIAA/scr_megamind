@@ -105,6 +105,11 @@ void GPS_task(void *pvParameter){
                     if (GPS.fix && GPS.satellites > 0) {
                         printf("Satellites: %i\n", GPS.satellites);
                         printf("Latitude: %f\n", GPS.latitude);
+                        printf("Longitude: %f\n", GPS.longitude);
+                        printf("Altitude: %f\n", GPS.altitude);
+                        
+                        //Collects spped over the ground, not sure how useful it'll be
+                        //printf("Speed (knots): %f\n" GPS.speed);
 
                         // if we found data, go to end of function
                         // we don't want to print out the same data multiple times
