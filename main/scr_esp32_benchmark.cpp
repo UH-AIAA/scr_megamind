@@ -81,6 +81,8 @@ void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
 }
 
+void ADXL_task(void *pvParameter);
+
 extern "C" void app_main()
 {
     // init Arduino Framework from ESP HAL
@@ -94,14 +96,23 @@ extern "C" void app_main()
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+    xTaskCreatePinnedToCore(
+        ADXL_task,
+        "ADXL_task",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0
+    );
 }
 
-void ADXL375(void *pvParameter) {
+void ADXL_task(void *pvParameter) {
 
     while(1) {
     //ADXL already initialized in previous code?
         //check ADXL connection and yield to other tasks if connection bad
-        
+        uint32_t startTime = millis();
         //Taking the time since activation of sensor
         TickType_t uptime = xTaskGetTickCount();
 
@@ -110,7 +121,8 @@ void ADXL375(void *pvParameter) {
         if(!ADXL.getEvent(&event)) {
             taskYIELD();
         }
-        
+
+        uint32_t endTime = millis();
 
         #ifdef DEBUG
             printf("ADXL Uptime: %lu [ms]\n",uptime);
@@ -119,11 +131,12 @@ void ADXL375(void *pvParameter) {
             printf("\nX: %f [m/s^2]\n",event.acceleration.x);
             printf("Y: %f [m/s^2]\n",event.acceleration.y);
             printf("Z: %f [m/s^2]\n",event.acceleration.z);
+            printf("Elapsed Time: %li\n", endTime - startTime);
         #endif
 
         //I believe the delay function in comment below is for arduino
         //delay(500);
         //delay 1 tick
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
