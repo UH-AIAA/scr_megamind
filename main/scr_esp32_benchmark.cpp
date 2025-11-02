@@ -83,8 +83,8 @@ void init_I2C() {
 }
 
 void ADXL_task(void *pvParameter);
-
 void BNO_task(void *pvParameter);
+void LSM_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -113,6 +113,16 @@ extern "C" void app_main()
     xTaskCreatePinnedToCore(
         BNO_task,
         "BNO_task",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0
+    );
+    
+    xTaskCreatePinnedToCore(
+        LSM_task,
+        "LSM_task",
         5000,
         NULL,
         1,
@@ -198,5 +208,43 @@ void BNO_task(void *pvParameter) {
         #endif
 
         vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
+    }
+}
+
+void LSM_task(void *pvParameter) {
+    while (1) {
+        TickType_t uptime = xTaskGetTickCount();
+
+        uint32_t startTime = millis();
+
+        //Sensor events
+        sensors_event_t accel;
+        sensors_event_t gyro;
+        sensors_event_t temp;
+
+        //event to get data
+        if(!LSM.getEvent(&accel, &gyro, &temp)) {
+            taskYIELD();
+        }
+
+        //data printing 
+
+        #ifdef DEBUG
+            printf("LSM Ticktime: %lu [ms]\n", uptime);
+            printf("X Acceleration: %f [m/s^2]\n", accel.acceleration.x);
+            printf("Y Acceleration: %f [m/s^2]\n", accel.acceleration.y);
+            printf("Z Acceleration: %f [m/s^2]\n", accel.acceleration.z);
+            printf("X Gyro: %f [idk]\n",gyro.gyro.x);
+            printf("Y Gyro: %f [idk]\n",gyro.gyro.y);
+            printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
+            // printf("Temperature: %f [deg C]\n",temp);
+            uint32_t endTime = millis();
+            printf("Elapsed Time: %li\n\n", endTime - startTime);
+
+        #endif
+        
+        //delay funct 
+        //delay (500), 1 tick
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
