@@ -79,9 +79,12 @@ void init_spi() {
 
 void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
+    BNO.begin();
 }
 
 void ADXL_task(void *pvParameter);
+
+void BNO_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -96,9 +99,20 @@ extern "C" void app_main()
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+    
     xTaskCreatePinnedToCore(
         ADXL_task,
         "ADXL_task",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0
+    );
+    
+    xTaskCreatePinnedToCore(
+        BNO_task,
+        "BNO_task",
         5000,
         NULL,
         1,
@@ -128,15 +142,61 @@ void ADXL_task(void *pvParameter) {
             printf("ADXL Uptime: %lu [ms]\n",uptime);
             //Display the results (acceleration is measured in m/s^2)
 
-            printf("\nX: %f [m/s^2]\n",event.acceleration.x);
+            printf("X: %f [m/s^2]\n",event.acceleration.x);
             printf("Y: %f [m/s^2]\n",event.acceleration.y);
             printf("Z: %f [m/s^2]\n",event.acceleration.z);
-            printf("Elapsed Time: %li\n", endTime - startTime);
+            printf("Elapsed Time: %li\n\n", endTime - startTime);
         #endif
 
         //I believe the delay function in comment below is for arduino
         //delay(500);
         //delay 1 tick
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+void BNO_task(void *pvParameter) {
+    while (1) {
+        // printf("BNO Task Called!\n");
+        sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
+
+        if (!BNO.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
+            taskYIELD();
+        }
+        if (!BNO.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE)) {
+            taskYIELD();
+        }
+        if (!BNO.getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER)) {
+            taskYIELD();
+        }
+        if (!BNO.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
+            taskYIELD();
+        }
+        
+        uint32_t startTime = millis();
+        TickType_t uptime = xTaskGetTickCount();
+        
+        imu::Quaternion quat = BNO.getQuat();
+
+        uint32_t endTime = millis();
+
+        #ifdef DEBUG
+            printf("BNO Uptime: %lu\n", uptime);
+            printf("Quaternion:\n");
+            printf("W: %f\n", quat.w());
+            printf("X: %f\n", quat.x());
+            printf("Y: %f\n", quat.y());
+            printf("Z: %f\n\n", quat.z());
+
+            printf("Euler Orientation:\n");
+            printf("X: %f\n", angVelocityData.gyro.x);
+            printf("Y: %f\n", angVelocityData.gyro.y);
+            printf("Z: %f\n", angVelocityData.gyro.z);
+            printf("Elapsed Time: %li\n\n\n", endTime - startTime);
+            // other data has been left out to avoid slowing down printing
+
+        #endif
+
+        vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
     }
 }
