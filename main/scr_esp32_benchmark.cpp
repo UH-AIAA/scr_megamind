@@ -100,15 +100,15 @@ extern "C" void app_main()
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
     
-    // xTaskCreatePinnedToCore(
-    //     ADXL_task,
-    //     "ADXL_task",
-    //     5000,
-    //     NULL,
-    //     1,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        ADXL_task,
+        "ADXL_task",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0
+    );
     
     xTaskCreatePinnedToCore(
         BNO_task,
@@ -142,25 +142,22 @@ void ADXL_task(void *pvParameter) {
             printf("ADXL Uptime: %lu [ms]\n",uptime);
             //Display the results (acceleration is measured in m/s^2)
 
-            printf("\nX: %f [m/s^2]\n",event.acceleration.x);
+            printf("X: %f [m/s^2]\n",event.acceleration.x);
             printf("Y: %f [m/s^2]\n",event.acceleration.y);
             printf("Z: %f [m/s^2]\n",event.acceleration.z);
-            printf("Elapsed Time: %li\n", endTime - startTime);
+            printf("Elapsed Time: %li\n\n", endTime - startTime);
         #endif
 
         //I believe the delay function in comment below is for arduino
         //delay(500);
         //delay 1 tick
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
 }
 
 void BNO_task(void *pvParameter) {
     while (1) {
-        uint32_t startTime = millis();
-
-        TickType_t uptime = xTaskGetTickCount();
-
+        // printf("BNO Task Called!\n");
         sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
 
         if (!BNO.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
@@ -175,7 +172,10 @@ void BNO_task(void *pvParameter) {
         if (!BNO.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
             taskYIELD();
         }
-
+        
+        uint32_t startTime = millis();
+        TickType_t uptime = xTaskGetTickCount();
+        
         imu::Quaternion quat = BNO.getQuat();
 
         uint32_t endTime = millis();
@@ -197,6 +197,6 @@ void BNO_task(void *pvParameter) {
 
         #endif
 
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
     }
 }
