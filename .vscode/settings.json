@@ -1,5 +1,7 @@
 {
     "files.associations": {
         "functional": "cpp"
-    }
+    },
+    "idf.flashType": "UART",
+    "idf.portWin": "COM9"
 }
