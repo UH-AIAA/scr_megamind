@@ -1,5 +1,5 @@
-idf_component_register(SRCS "Ops.cpp" "State.cpp" "Main.cpp" "BMP581/BMP581.cpp" "ADXL375/ADXL375.cpp"
-                    INCLUDE_DIRS "." "BMP581" "ADXL375"
+idf_component_register(SRCS "Ops.cpp" "State.cpp" "Main.cpp" 
+                    INCLUDE_DIRS "."
                     REQUIRES 
                         arduino
                         LoRa
