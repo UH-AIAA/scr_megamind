@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include <utility/imumaths.h>
 
 #include "esp_system.h"
 #include "driver/gpio.h"
@@ -79,12 +78,20 @@ void init_spi() {
 
 void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
+
+    // GPS Setup
+    GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
+    GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ);
+    GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
+    
+    // BNO begin
     BNO.begin();
 }
 
 void ADXL_task(void *pvParameter);
 void BNO_task(void *pvParameter);
 void LSM_task(void *pvParameter);
+void GPS_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -99,6 +106,15 @@ extern "C" void app_main()
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+
+    xTaskCreate(
+        GPS_task,     // Arg 1: The function to run
+        "GPS Task",   // Arg 2: A name for debugging
+        5000,         // Arg 3: Stack size (memory for the task)
+        NULL,         // Arg 4: The parameter to pass to the task
+        3,            // Arg 5: The task's priority
+        NULL          // Arg 6: The task handle (NULL is fine)
+    );
     
     xTaskCreatePinnedToCore(
         ADXL_task,
@@ -129,6 +145,50 @@ extern "C" void app_main()
         NULL,
         0
     );
+}
+
+void GPS_task(void *pvParameter) {
+
+    while(true){
+        uint32_t startms = millis();
+        uint32_t timeout = startms + 200;
+
+        while (millis() < timeout) {
+            while (GPS.available()) {
+                GPS.read();
+                //choke point is from GPS.read();
+                //can only read 1 byte at a time
+
+                if (GPS.newNMEAreceived()) {
+                    if (!GPS.parse(GPS.lastNMEA())) {
+                        continue;
+                    }
+
+                    if (GPS.fix && GPS.satellites > 0) {
+                        printf("Satellites: %i\n", GPS.satellites);
+                        printf("Latitude: %f, %c\n", GPS.latitude,GPS.lat);
+                        printf("Longitude: %f, %c\n", GPS.longitude, GPS.lon);
+                        printf("Altitude: %f [meters]\n", GPS.altitude);
+                        
+                        //Collects speed over the ground, not sure how useful it'll be
+                        //printf("Speed (knots): %f\n" GPS.speed);
+
+                        // if we found data, go to end of function
+                        // we don't want to print out the same data multiple times
+                        goto end;
+                    }
+                }
+            }
+        }
+
+        end:
+            uint32_t endms = millis();
+            uint32_t spentms = endms - startms;
+            printf("Millis: %lu\n", endms);
+            printf("Task took %lu ms to complete.\n\n", spentms);
+            uint32_t delayms = std::min(200 - spentms, static_cast<uint32_t>(10));
+            vTaskDelay(delayms);
+    }
 }
 
 void ADXL_task(void *pvParameter) {
