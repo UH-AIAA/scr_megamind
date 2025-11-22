@@ -61,13 +61,8 @@ typedef struct{
     float bno_ori_w, bno_ori_x, bno_ori_y, bno_ori_z;
     float lsm_temp, adxl_temp, bno_temp;
     float bmp_temp, bmp_press, bmp_alt;
+    float gps_sats, gps_lat, gps_long, gps_alt;
 }OutputData_t; //eventually to use to save to sd card and lora
-
-// typedef struct{
-//     float bmp_temp;
-//     float bmp_press;
-//     float bmp_alt;
-// } OutputData_t;
 
 typedef struct{
     OutputData_t *pOutputData;
@@ -97,7 +92,7 @@ Adafruit_BMP5xx    BMP;
 Adafruit_ADXL375   ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
-// Adafruit_GPS GPS(&Wire);
+Adafruit_GPS GPS(&Wire);
 
 
 void init_spi() {
@@ -109,12 +104,6 @@ void init_spi() {
 
 void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
-
-    // // GPS Setup
-    // GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
-    // GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ);
-    // GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
-    
     // BNO begin
     BNO.begin();
 }
@@ -140,21 +129,21 @@ extern "C" void app_main()
     gSpiMutex = xSemaphoreCreateMutex();
     gI2cMutex = xSemaphoreCreateMutex();
 
-    TaskParams_t *pParams     = (TaskParams_t*)malloc(sizeof(TaskParams_t));
-    //BMP object address
-    pParams->pOutputData      = &gOutputData;
+    TaskParams_t *pParams    = (TaskParams_t*)malloc(sizeof(TaskParams_t));
+    //BMP+GPS object address
+    pParams->pOutputData     = &gOutputData;
     ///ADXL object address
-    pParams->pEventADXL       = &gEventADXL;
+    pParams->pEventADXL      = &gEventADXL;
     ///LSM object address
-    pParams->pEventLSM_accel  = &gEventLSM_accel;
-    pParams->pEventLSM_gyro   = &gEventLSM_gyro;
-    pParams->pEventLSM_temp   = &gEventLSM_temp;
+    pParams->pEventLSM_accel = &gEventLSM_accel;
+    pParams->pEventLSM_gyro  = &gEventLSM_gyro;
+    pParams->pEventLSM_temp  = &gEventLSM_temp;
     ///BNO object address
-    pParams->pOrientation        = &gOrientation;
-    pParams->pAngVelocity        = &gAngVelocity;
-    pParams->pMagnetometer       = &gMagnetometer;
-    pParams->pAccelerometer      = &gAccelerometer;
-    pParams->pQuaternion         = &gQuaternion;
+    pParams->pOrientation    = &gOrientation;
+    pParams->pAngVelocity    = &gAngVelocity;
+    pParams->pMagnetometer   = &gMagnetometer;
+    pParams->pAccelerometer  = &gAccelerometer;
+    pParams->pQuaternion     = &gQuaternion;
 
     xTaskCreatePinnedToCore(
         Core0_task,
@@ -166,15 +155,15 @@ extern "C" void app_main()
         0
     );
 
-    // xTaskCreatePinnedToCore(
-    //     Core1_task,
-    //     "BMP_task",
-    //     5000,
-    //     NULL,
-    //     1,
-    //     NULL,
-    //     1
-    // );
+    xTaskCreatePinnedToCore(
+        Core1_task,
+        "Core1_task",
+        5000,
+        (void*)pParams,
+        1,
+        NULL,
+        1
+    );
 }
 
 void Core0_task(void *pvParameter) {
@@ -187,13 +176,6 @@ void Core0_task(void *pvParameter) {
     sensors_event_t *pEventLSM_accel = pTask->pEventLSM_accel;
     sensors_event_t *pEventLSM_gyro  = pTask->pEventLSM_gyro;
     sensors_event_t *pEventLSM_temp  = pTask->pEventLSM_temp;
-    ///BNO pointer
-    sensors_event_t *pEventBNO_ori   = pTask->pOrientation;
-    sensors_event_t *pEventBNO_angVel= pTask->pAngVelocity;
-    sensors_event_t *pEventBNO_mag   = pTask->pMagnetometer;
-    sensors_event_t *pEventBNO_accel = pTask->pAccelerometer;
-    imu::Quaternion *pQuaternion     = pTask->pQuaternion;
-
 
     while(1)
     {
@@ -210,9 +192,9 @@ void Core0_task(void *pvParameter) {
 
           #ifdef DEBUG
               printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
-              printf("bmp_temp: %f\n", pOutputData->bmp_temp-0.8);
-              printf("bmp_press: %f\n", pOutputData->bmp_press);
-              printf("bmp_alt: %f\n\n", pOutputData->bmp_alt + 25.85);
+              printf("BMP Temp: %f\n", pOutputData->bmp_temp-0.8);
+              printf("BMP Press: %f\n", pOutputData->bmp_press);
+              printf("BMP Alt: %f\n\n", pOutputData->bmp_alt + 25.85);
           #endif
           }
       } else {
@@ -231,9 +213,9 @@ void Core0_task(void *pvParameter) {
         if (adxl_ok) {
           #ifdef DEBUG
                   printf("ADXL Up Time: %lu [ms]\n", (unsigned long)upTime);
-                  printf("X: %f [m/s^2]\n", pEventADXL->acceleration.x-9.11);
-                  printf("Y: %f [m/s^2]\n", pEventADXL->acceleration.y-1.44);
-                  printf("Z: %f [m/s^2]\n\n", pEventADXL->acceleration.z-3.344);
+                  printf("ADXL accel X: %f [m/s^2]\n", pEventADXL->acceleration.x-9.11);
+                  printf("ADXL accel Y: %f [m/s^2]\n", pEventADXL->acceleration.y-1.44);
+                  printf("ADXL accel Z: %f [m/s^2]\n\n", pEventADXL->acceleration.z-3.344);
           #endif
         }
       } else {
@@ -252,13 +234,13 @@ void Core0_task(void *pvParameter) {
         if (lsm_ok) {
           #ifdef DEBUG
             printf("LSM Up Time: %lu [ms]\n", (unsigned long)upTime);
-            printf("X Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.x + 0.003);
-            printf("Y Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.y + 0.003);
-            printf("Z Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.z - 9.631);
+            printf("LSM Accel X: %f [m/s^2]\n", pEventLSM_accel->acceleration.x + 0.003);
+            printf("LSM Accel Y: %f [m/s^2]\n", pEventLSM_accel->acceleration.y + 0.003);
+            printf("LSM Accel Z: %f [m/s^2]\n", pEventLSM_accel->acceleration.z - 9.631);
 
-            printf("X Gyro: %f\n", pEventLSM_gyro->gyro.x + 0.003);
-            printf("Y Gyro: %f\n", pEventLSM_gyro->gyro.y+0.115);
-            printf("Z Gyro: %f\n", pEventLSM_gyro->gyro.z);
+            printf("LSM Gyro X: %f\n", pEventLSM_gyro->gyro.x + 0.003);
+            printf("LSM Gyro Y: %f\n", pEventLSM_gyro->gyro.y+0.115);
+            printf("LSM Gyro Z: %f\n", pEventLSM_gyro->gyro.z);
 
             printf("Temp: %f\n\n", pEventLSM_temp->temperature-2.5);
           #endif
@@ -269,6 +251,21 @@ void Core0_task(void *pvParameter) {
           #endif
       }
 
+    }
+}
+
+void Core1_task(void *pvParameter) {
+    TaskParams_t *pTask       = (TaskParams_t *)pvParameter;
+    ///GPS pointer
+    OutputData_t *pOutputData = pTask->pOutputData;
+    ///BNO pointer
+    sensors_event_t *pEventBNO_ori   = pTask->pOrientation;
+    sensors_event_t *pEventBNO_angVel= pTask->pAngVelocity;
+    sensors_event_t *pEventBNO_mag   = pTask->pMagnetometer;
+    sensors_event_t *pEventBNO_accel = pTask->pAccelerometer;
+    imu::Quaternion *pQuaternion     = pTask->pQuaternion;
+
+    while (1) {
 
         ///BNO function 
         bool orient_ok = false;
@@ -292,30 +289,30 @@ void Core0_task(void *pvParameter) {
                         printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
 
                         printf("BNO Quaternion:\n");
-                        printf("W: %f\n",   pQuaternion->w());
-                        printf("X: %f\n",   pQuaternion->x());
-                        printf("Y: %f\n",   pQuaternion->y());
-                        printf("Z: %f\n\n", pQuaternion->z());
+                        printf("BNO quater W: %f\n",   pQuaternion->w());
+                        printf("BNO quater X: %f\n",   pQuaternion->x());
+                        printf("BNO quater Y: %f\n",   pQuaternion->y());
+                        printf("BNO quater Z: %f\n\n", pQuaternion->z());
 
                         printf("BNO Orientation:\n");
-                        printf("X: %f\n",   pEventBNO_ori->orientation.x);
-                        printf("Y: %f\n",   pEventBNO_ori->orientation.y);
-                        printf("Z: %f\n\n", pEventBNO_ori->orientation.z);
+                        printf("BNO Ori X: %f\n",   pEventBNO_ori->orientation.x);
+                        printf("BNO Ori Y: %f\n",   pEventBNO_ori->orientation.y);
+                        printf("BNO Ori Z: %f\n\n", pEventBNO_ori->orientation.z);
 
                         printf("BNO Gyro:\n");
-                        printf("X: %f\n",   pEventBNO_angVel->gyro.x);
-                        printf("Y: %f\n",   pEventBNO_angVel->gyro.y);
-                        printf("Z: %f\n\n", pEventBNO_angVel->gyro.z);
+                        printf("BNO Gyro X: %f\n",   pEventBNO_angVel->gyro.x);
+                        printf("BNO Gyro Y: %f\n",   pEventBNO_angVel->gyro.y);
+                        printf("BNO Gyro Z: %f\n\n", pEventBNO_angVel->gyro.z);
 
                         printf("BNO Magnometer:\n");
-                        printf("X: %f\n", pEventBNO_mag->magnetic.x);
-                        printf("Y: %f\n", pEventBNO_mag->magnetic.y);
-                        printf("Z: %f\n\n", pEventBNO_mag->magnetic.z);
+                        printf("BNO Mag X: %f\n", pEventBNO_mag->magnetic.x);
+                        printf("BNO Mag Y: %f\n", pEventBNO_mag->magnetic.y);
+                        printf("BNO Mag Z: %f\n\n", pEventBNO_mag->magnetic.z);
 
                         printf("BNO Accelerometer:\n");
-                        printf("X: %f\n", pEventBNO_accel->acceleration.x);
-                        printf("Y: %f\n", pEventBNO_accel->acceleration.y);
-                        printf("Z: %f\n\n", pEventBNO_accel->acceleration.z-9.35);
+                        printf("BNO Accel X: %f\n", pEventBNO_accel->acceleration.x);
+                        printf("BNO Accel Y: %f\n", pEventBNO_accel->acceleration.y);
+                        printf("BNO Accel Z: %f\n\n", pEventBNO_accel->acceleration.z-9.35);
                 #endif
             }
         } else {
@@ -326,10 +323,57 @@ void Core0_task(void *pvParameter) {
 
 
 
+        /// GPS function
+        bool     got_fix      = false;
+        uint32_t cycle_start  = millis();
+        uint32_t timeout      = cycle_start + 200;  // ~200 ms per GPS cycle
 
+        while ((millis() < timeout) && !got_fix) {
+
+            if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                upTime = xTaskGetTickCount(); 
+                // In I2C mode, these all use the bus, so keep them under the lock
+                while (GPS.available()) {           // drain all pending bytes this pass
+                    GPS.read();                     // reads one byte
+
+                    if (GPS.newNMEAreceived()) {
+                        if (!GPS.parse(GPS.lastNMEA())) {
+                            // bad sentence, skip it
+                            continue;
+                        }
+
+                        if (GPS.fix && GPS.satellites > 0) {
+                            // Store into shared output struct
+                            pOutputData->gps_sats  = GPS.satellites;
+                            pOutputData->gps_lat   = GPS.latitude;
+                            pOutputData->gps_long  = GPS.longitude;
+                            pOutputData->gps_alt   = GPS.altitude;
+
+                            #ifdef DEBUG
+                                printf("GPS: fix OK\n");
+                                printf("GPS Uptime: %lu [ms]\n", (unsigned long)upTime);
+                                printf("Satellites: %d\n", GPS.satellites);
+                                printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
+                                printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
+                                printf("Altitude:  %f [m]\n\n", GPS.altitude);
+                            #endif
+                            got_fix = true;
+                            break;  // break while(GPS.available())
+                        }
+                    }
+                }
+
+                xSemaphoreGive(gI2cMutex);
+            } else {
+                #ifdef DEBUG
+                    printf("No token GPS!!!\n");
+                #endif
+            }
+        }
+        #ifdef DEBUG
+            if (!got_fix) {
+                printf("GPS: no valid fix this cycle\n");
+            }
+        #endif
     }
-}
-
-void Core1_task(void *pvParameter) {
-
 }
