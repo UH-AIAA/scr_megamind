@@ -167,9 +167,6 @@ void Core0_task(void *pvParameter) {
           printf("bmp_alt: %f\n\n", pOutputData->bmp_alt);
         #endif
 
-        vTaskDelay(pdMS_TO_TICKS(1));
-
-
 
         ///ADXL function
         upTime = xTaskGetTickCount();
@@ -180,10 +177,28 @@ void Core0_task(void *pvParameter) {
           printf("ADXL Up Time: %ld [ms]\n",upTime);
           printf("X: %f [m/s^2]\n",pEvent->acceleration.x);
           printf("Y: %f [m/s^2]\n",pEvent->acceleration.y);
-          printf("Z: %f [m/s^2]\n",pEvent->acceleration.z);
+          printf("Z: %f [m/s^2]\n\n",pEvent->acceleration.z);
         #endif
 
-        vTaskDelay(pdMS_TO_TICKS(1));
+
+        // ///LSM function
+        // upTime = xTaskGetTickCount();
+        // if(!LSM.getEvent(pEvent)) {
+        //     taskYIELD();
+        // }
+        // #ifdef DEBUG
+        //     printf("LSM Up Time: %ld [ms]\n",upTime);
+        //     printf("X Acceleration: %f [m/s^2]\n", pEvent->acceleration.x);
+        //     printf("Y Acceleration: %f [m/s^2]\n", pEvent->acceleration.y);
+        //     printf("Z Acceleration: %f [m/s^2]\n", pEvent->acceleration.z);
+        //     printf("X Gyro: %f \n",gyro.gyro.x);
+        //     printf("Y Gyro: %f \n",gyro.gyro.y);
+        //     printf("Z Gyro: %f \n",gyro.gyro.z);
+        //     // printf("Temperature: %f [deg C]\n",temp);
+        //     uint32_t endTime = millis();
+        //     printf("Elapsed Time: %li\n\n", endTime - startTime);
+        // #endif
+
     }
 }
 
