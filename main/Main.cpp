@@ -177,7 +177,7 @@ void Core0_task(void *pvParameter) {
 
     while(1)
     {
-      /// BMP functions
+      /// BMP functions + calibrations
       if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
           upTime = xTaskGetTickCount();
           bool bmp_ok = BMP.performReading();
@@ -190,9 +190,9 @@ void Core0_task(void *pvParameter) {
 
           #ifdef DEBUG
               printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
-              printf("bmp_temp: %f\n", pOutputData->bmp_temp);
+              printf("bmp_temp: %f\n", pOutputData->bmp_temp-0.8);
               printf("bmp_press: %f\n", pOutputData->bmp_press);
-              printf("bmp_alt: %f\n\n", pOutputData->bmp_alt);
+              printf("bmp_alt: %f\n\n", pOutputData->bmp_alt + 29.8);
           #endif
           }
       } else {
@@ -201,9 +201,8 @@ void Core0_task(void *pvParameter) {
           #endif
       }
           
-    vTaskDelay(pdMS_TO_TICKS(30));
 
-      /// ADXL function
+      /// ADXL function + calibrations
       if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
         bool adxl_ok = ADXL.getEvent(pEventADXL);
@@ -212,9 +211,9 @@ void Core0_task(void *pvParameter) {
         if (adxl_ok) {
           #ifdef DEBUG
                   printf("ADXL Up Time: %lu [ms]\n", (unsigned long)upTime);
-                  printf("X: %f [m/s^2]\n", pEventADXL->acceleration.x);
-                  printf("Y: %f [m/s^2]\n", pEventADXL->acceleration.y);
-                  printf("Z: %f [m/s^2]\n\n", pEventADXL->acceleration.z);
+                  printf("X: %f [m/s^2]\n", pEventADXL->acceleration.x-9.11);
+                  printf("Y: %f [m/s^2]\n", pEventADXL->acceleration.y-1.44);
+                  printf("Z: %f [m/s^2]\n\n", pEventADXL->acceleration.z-3.344);
           #endif
         }
       } else {
@@ -223,9 +222,8 @@ void Core0_task(void *pvParameter) {
           #endif
       }
 
-      vTaskDelay(pdMS_TO_TICKS(30));
 
-      // LSM function 
+      // LSM function + calibrations
       if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
         bool lsm_ok = LSM.getEvent(pEventLSM_accel, pEventLSM_gyro, pEventLSM_temp);
@@ -234,15 +232,15 @@ void Core0_task(void *pvParameter) {
         if (lsm_ok) {
           #ifdef DEBUG
             printf("LSM Up Time: %lu [ms]\n", (unsigned long)upTime);
-            printf("X Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.x);
-            printf("Y Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.y);
-            printf("Z Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.z);
+            printf("X Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.x + 0.003);
+            printf("Y Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.y + 0.003);
+            printf("Z Acceleration: %f [m/s^2]\n", pEventLSM_accel->acceleration.z - 9.631);
 
-            printf("X Gyro: %f\n", pEventLSM_gyro->gyro.x);
-            printf("Y Gyro: %f\n", pEventLSM_gyro->gyro.y);
+            printf("X Gyro: %f\n", pEventLSM_gyro->gyro.x + 0.003);
+            printf("Y Gyro: %f\n", pEventLSM_gyro->gyro.y+0.115);
             printf("Z Gyro: %f\n", pEventLSM_gyro->gyro.z);
 
-            printf("Temp: %f\n\n", pEventLSM_temp->temperature);
+            printf("Temp: %f\n\n", pEventLSM_temp->temperature-2.5);
           #endif
         }
       } else {
@@ -250,8 +248,6 @@ void Core0_task(void *pvParameter) {
               printf("No token LSM!!!");
           #endif
       }
-
-      vTaskDelay(pdMS_TO_TICKS(30));
 
 
 
