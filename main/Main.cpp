@@ -1,11 +1,5 @@
-///////////////////////////////////////////////////////////////////////
-/*                   SCR ESP-32 Brute Sensor Test                    */
-///////////////////////////////////////////////////////////////////////
-/*                           N. Samuell                              */
-/*                      FreeRTOS/ESP-IDF test                        */
-/*                          MIT License                              */
-///////////////////////////////////////////////////////////////////////
-
+/// Note: Current version is not calibrated. It would be a best practice to calibrate data during launch day
+/// so it returns precise values. But do calibrate when write the state machine code.
 
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
@@ -77,26 +71,32 @@ typedef struct{
 
 typedef struct{
     OutputData_t *pOutputData;
-    sensors_event_t *pEventADXL;
-    sensors_event_t *pEventLSM_accel;
-    sensors_event_t *pEventLSM_gyro;
-    sensors_event_t *pEventLSM_temp;
+    sensors_event_t *pEventADXL,
+                    *pEventLSM_accel,
+                    *pEventLSM_gyro,
+                    *pEventLSM_temp,
+                    *pOrientation,
+                    *pAngVelocity,
+                    *pMagnetometer,
+                    *pAccelerometer;
+    imu::Quaternion *pQuaternion;
 }TaskParams_t;
 
 OutputData_t    gOutputData; /// global Output object for sensors data
 sensors_event_t gEventADXL; /// global output data for ADXL375
-sensors_event_t gEventLSM_accel; /// global output data for LSM acceleration
-sensors_event_t gEventLSM_gyro; /// global output data for LSM gyro
-sensors_event_t gEventLSM_temp; /// global output data for LSM temperature
+sensors_event_t gEventLSM_accel, gEventLSM_gyro, gEventLSM_temp; /// global output data for LSM 
+sensors_event_t gOrientation, gAngVelocity, gMagnetometer, gAccelerometer; // global output for BNO
+imu::Quaternion gQuaternion; //quaternion output for BNO
 
 uint32_t upTime; /// The current time of task is running in the beginning
 SemaphoreHandle_t gSpiMutex; /// SPI bus mutex to manage protocol traffic
+SemaphoreHandle_t gI2cMutex; /// I2C bus mutex to manage protocol traffic
 
 //Chip Object Instantiation
 Adafruit_BMP5xx    BMP;
 Adafruit_ADXL375   ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32 LSM;
-// Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
+Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 // Adafruit_GPS GPS(&Wire);
 
 
@@ -108,7 +108,7 @@ void init_spi() {
 }
 
 void init_I2C() {
-    //Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.begin(I2C_SDA, I2C_SCL);
 
     // // GPS Setup
     // GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
@@ -116,7 +116,7 @@ void init_I2C() {
     // GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
     
     // BNO begin
-    //BNO.begin();
+    BNO.begin();
 }
 
 void Core0_task(void *pvParameter);
@@ -138,13 +138,23 @@ extern "C" void app_main()
 
     // Create New Mutex
     gSpiMutex = xSemaphoreCreateMutex();
+    gI2cMutex = xSemaphoreCreateMutex();
 
     TaskParams_t *pParams     = (TaskParams_t*)malloc(sizeof(TaskParams_t));
+    //BMP object address
     pParams->pOutputData      = &gOutputData;
+    ///ADXL object address
     pParams->pEventADXL       = &gEventADXL;
+    ///LSM object address
     pParams->pEventLSM_accel  = &gEventLSM_accel;
     pParams->pEventLSM_gyro   = &gEventLSM_gyro;
     pParams->pEventLSM_temp   = &gEventLSM_temp;
+    ///BNO object address
+    pParams->pOrientation        = &gOrientation;
+    pParams->pAngVelocity        = &gAngVelocity;
+    pParams->pMagnetometer       = &gMagnetometer;
+    pParams->pAccelerometer      = &gAccelerometer;
+    pParams->pQuaternion         = &gQuaternion;
 
     xTaskCreatePinnedToCore(
         Core0_task,
@@ -169,11 +179,21 @@ extern "C" void app_main()
 
 void Core0_task(void *pvParameter) {
     TaskParams_t    *pTask           = (TaskParams_t*)pvParameter;
+    ///BMP pointer
     OutputData_t    *pOutputData     = pTask->pOutputData;
+    ///ADXL pointer
     sensors_event_t *pEventADXL      = pTask->pEventADXL;
+    ///LSM pointer
     sensors_event_t *pEventLSM_accel = pTask->pEventLSM_accel;
     sensors_event_t *pEventLSM_gyro  = pTask->pEventLSM_gyro;
     sensors_event_t *pEventLSM_temp  = pTask->pEventLSM_temp;
+    ///BNO pointer
+    sensors_event_t *pEventBNO_ori   = pTask->pOrientation;
+    sensors_event_t *pEventBNO_angVel= pTask->pAngVelocity;
+    sensors_event_t *pEventBNO_mag   = pTask->pMagnetometer;
+    sensors_event_t *pEventBNO_accel = pTask->pAccelerometer;
+    imu::Quaternion *pQuaternion     = pTask->pQuaternion;
+
 
     while(1)
     {
@@ -192,7 +212,7 @@ void Core0_task(void *pvParameter) {
               printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
               printf("bmp_temp: %f\n", pOutputData->bmp_temp-0.8);
               printf("bmp_press: %f\n", pOutputData->bmp_press);
-              printf("bmp_alt: %f\n\n", pOutputData->bmp_alt + 29.8);
+              printf("bmp_alt: %f\n\n", pOutputData->bmp_alt + 25.85);
           #endif
           }
       } else {
@@ -248,6 +268,62 @@ void Core0_task(void *pvParameter) {
               printf("No token LSM!!!");
           #endif
       }
+
+
+        ///BNO function 
+        bool orient_ok = false;
+        bool gyro_ok   = false;
+        bool mag_ok    = false;
+        bool accel_ok  = false;
+
+        if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            upTime = xTaskGetTickCount();
+            orient_ok = BNO.getEvent(pEventBNO_ori,    Adafruit_BNO055::VECTOR_EULER);
+            gyro_ok   = BNO.getEvent(pEventBNO_angVel, Adafruit_BNO055::VECTOR_GYROSCOPE);
+            mag_ok    = BNO.getEvent(pEventBNO_mag,    Adafruit_BNO055::VECTOR_MAGNETOMETER);
+            accel_ok  = BNO.getEvent(pEventBNO_accel,  Adafruit_BNO055::VECTOR_ACCELEROMETER);
+            // quaternion also uses I2C, so keep it inside the lock
+            *pQuaternion = BNO.getQuat();
+            xSemaphoreGive(gI2cMutex);
+
+            bool bno_ok = orient_ok && gyro_ok && mag_ok && accel_ok;
+            if (bno_ok) {
+                #ifdef DEBUG
+                        printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
+
+                        printf("BNO Quaternion:\n");
+                        printf("W: %f\n",   pQuaternion->w());
+                        printf("X: %f\n",   pQuaternion->x());
+                        printf("Y: %f\n",   pQuaternion->y());
+                        printf("Z: %f\n\n", pQuaternion->z());
+
+                        printf("BNO Orientation:\n");
+                        printf("X: %f\n",   pEventBNO_ori->orientation.x);
+                        printf("Y: %f\n",   pEventBNO_ori->orientation.y);
+                        printf("Z: %f\n\n", pEventBNO_ori->orientation.z);
+
+                        printf("BNO Gyro:\n");
+                        printf("X: %f\n",   pEventBNO_angVel->gyro.x);
+                        printf("Y: %f\n",   pEventBNO_angVel->gyro.y);
+                        printf("Z: %f\n\n", pEventBNO_angVel->gyro.z);
+
+                        printf("BNO Magnometer:\n");
+                        printf("X: %f\n", pEventBNO_mag->magnetic.x);
+                        printf("Y: %f\n", pEventBNO_mag->magnetic.y);
+                        printf("Z: %f\n\n", pEventBNO_mag->magnetic.z);
+
+                        printf("BNO Accelerometer:\n");
+                        printf("X: %f\n", pEventBNO_accel->acceleration.x);
+                        printf("Y: %f\n", pEventBNO_accel->acceleration.y);
+                        printf("Z: %f\n\n", pEventBNO_accel->acceleration.z-9.35);
+                #endif
+            }
+        } else {
+            #ifdef DEBUG
+                printf("No token BNO!!!");
+            #endif
+        }
+
 
 
 
