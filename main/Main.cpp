@@ -17,9 +17,7 @@
 #include "Adafruit_BNO055.h"
 #include "Adafruit_GPS.h"
 #include "LoRa.h"
-
-// SRAD Imports
-//#include "SRAD_PHX.h"
+#include "SD.h"
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -31,7 +29,6 @@
 #define VSPI_SCLK_PIN 18
 #define VSPI_MISO_PIN 17
 #define VSPI_MOSI_PIN 16
-// #define VSPI_MAX_TRSZ 4092
 
 // I^2C Init
 #define I2C_SDA 8
@@ -42,6 +39,7 @@
 #define ADXL375_CS 5
 #define LSM6DSO32_CS 4
 #define LORA_CS 7
+#define SD_CS 20
 
 // Lo-Ra Control Pins
 #define LORA_RST 21
@@ -87,12 +85,14 @@ uint32_t upTime; /// The current time of task is running in the beginning
 SemaphoreHandle_t gSpiMutex; /// SPI bus mutex to manage protocol traffic
 SemaphoreHandle_t gI2cMutex; /// I2C bus mutex to manage protocol traffic
 
-//Chip Object Instantiation
-Adafruit_BMP5xx    BMP;
-Adafruit_ADXL375   ADXL(ADXL375_CS, &SPI);
-Adafruit_LSM6DSO32 LSM;
-Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
-Adafruit_GPS GPS(&Wire);
+//Sensors Object Instantiation
+Adafruit_BMP5xx     BMP;
+Adafruit_ADXL375    ADXL(ADXL375_CS, &SPI);
+Adafruit_LSM6DSO32  LSM;
+Adafruit_BNO055     BNO(55, BNO055_ADDRESS_A, &Wire);
+Adafruit_GPS        GPS(&Wire);
+SPIClass            SPI2(HSPI);
+File                sdData;
 
 
 void init_spi() {
@@ -100,6 +100,8 @@ void init_spi() {
     BMP.begin(BMP581_CS, &SPI);
     ADXL.begin();
     LSM.begin_SPI(LSM6DSO32_CS, &SPI);
+    SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
+    SD.begin(SD_CS, SPI2, 20000000); //20MHz SD SPI bus
 }
 
 void init_I2C() {
@@ -242,7 +244,7 @@ void Core0_task(void *pvParameter) {
             printf("LSM Gyro Y: %f\n", pEventLSM_gyro->gyro.y+0.115);
             printf("LSM Gyro Z: %f\n", pEventLSM_gyro->gyro.z);
 
-            printf("Temp: %f\n\n", pEventLSM_temp->temperature-2.5);
+            printf("LSM Temp: %f\n\n", pEventLSM_temp->temperature-2.5);
           #endif
         }
       } else {
@@ -250,6 +252,8 @@ void Core0_task(void *pvParameter) {
               printf("No token LSM!!!");
           #endif
       }
+
+      vTaskDelay(pdMS_TO_TICKS(10)); //Delay for stablity of watchdog
 
     }
 }
@@ -375,5 +379,22 @@ void Core1_task(void *pvParameter) {
                 printf("GPS: no valid fix this cycle\n");
             }
         #endif
+
+        /// SD card saving (Append data) --g get all data for now
+        sdData = SD.open("/SD_data.txt", FILE_APPEND);
+        if (sdData) {
+            sdData.print("\n\n\n\n");
+            sdData.print("BMP temp: ");
+            sdData.print(gOutputData.bmp_temp);
+            sdData.print("\nGPS sattelites: ");
+            sdData.print(gOutputData.gps_sats);
+            printf("Write success!!!"); 
+            sdData.close(); 
+        } else {
+            printf("Cant open file!!!");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(110)); //REQUIRED DELAY >=110ms (most optimized)
+
     }
 }
