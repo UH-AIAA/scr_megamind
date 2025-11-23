@@ -54,17 +54,17 @@
 
 /// Calibrated data struct
 typedef struct{
-    float bmp_temp, bmp_press, bmp_alt;
-    float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp;
+    float bmp_temp, bmp_press, bmp_alt = 0;
+    float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp = 0;
     float lsm_acc_x, lsm_acc_y, lsm_acc_z,
           lsm_gyro_x, lsm_gyro_y, lsm_gyro_z,
-          lsm_temp;
+          lsm_temp = 0;
     float bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,
           bno_acc_x,  bno_acc_y,  bno_acc_z,
           bno_gyro_x, bno_gyro_y, bno_gyro_z,
           bno_mag_x,  bno_mag_y,  bno_mag_z,
-          bno_ori_x,  bno_ori_y,  bno_ori_z;
-    float gps_sats, gps_lat, gps_long, gps_alt;
+          bno_ori_x,  bno_ori_y,  bno_ori_z = 0;
+    float gps_sats, gps_lat, gps_long, gps_alt = 0;
 } OutputData_t; 
 
 /// Pointers to hold global objects address
@@ -104,6 +104,7 @@ imu::Quaternion gQuaternion;
 uint32_t upTime;             
 SemaphoreHandle_t gSpiMutex; 
 SemaphoreHandle_t gI2cMutex; 
+bool gHasSD = false;
 
 //Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -124,7 +125,12 @@ void init_spi() {
 
     /// init SPI bus for SD + Lora
     SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
-    SD.begin(SD_CS, SPI2, 20000000); /// 20MHz SD SPI bus
+    gHasSD = SD.begin(SD_CS, SPI2, 20000000); /// 20MHz SD SPI bus
+    if (!gHasSD) {
+        Serial.println("SD init fail");
+    } else {
+        Serial.println("SD init OK");
+    }
 }
 
 void init_I2C() {
@@ -134,7 +140,8 @@ void init_I2C() {
 }
 
 void Core0_task(void *pvParameter);
-void Core1_task(void *pvParameter);
+void Core1_task1(void *pvParameter);
+void Core1_task2(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -174,7 +181,10 @@ extern "C" void app_main()
     xTaskCreatePinnedToCore(Core0_task, "Core0_task", 5000, (void*)pParams,
                             1, NULL, 0);
 
-    xTaskCreatePinnedToCore(Core1_task, "Core1_task", 5000, (void*)pParams,
+    xTaskCreatePinnedToCore(Core1_task1, "Core1_task1", 5000, (void*)pParams,
+                            2, NULL, 1);
+
+    xTaskCreatePinnedToCore(Core1_task2, "Core1_task2", 5000, (void*)pParams,
                             1, NULL, 1);
 }
 
@@ -284,7 +294,7 @@ void Core0_task(void *pvParameter) {
     }
 }
 
-void Core1_task(void *pvParameter) {
+void Core1_task1(void *pvParameter) {
     /// Pointers holder
     TaskParams_t *pTask       = (TaskParams_t *)pvParameter;
     /// GPS pointer
@@ -297,6 +307,7 @@ void Core1_task(void *pvParameter) {
     imu::Quaternion *pQuaternion     = pTask->pQuaternion;
 
     while (1) {
+
         ///BNO function 
         bool orient_ok = false;
         bool gyro_ok   = false;
@@ -376,38 +387,42 @@ void Core1_task(void *pvParameter) {
 
 
         /// GPS function
-        bool     got_fix      = false;
-        uint32_t cycle_start  = millis();
-        uint32_t timeout      = cycle_start + 200;  // ~200 ms per GPS cycle
+        bool     got_fix     = false;
+        uint32_t cycle_start = millis();
+        uint32_t timeout     = cycle_start + 200;  // ~200 ms window for this cycle
 
         while ((millis() < timeout) && !got_fix) {
+            // Try to grab I2C bus briefly
             if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                upTime = xTaskGetTickCount(); 
-                // In I2C mode, these all use the bus, so keep them under the lock
-                while (GPS.available()) {           // drain all pending bytes this pass
-                    GPS.read();                     // reads one byte
+                upTime = xTaskGetTickCount();
+
+                // Drain all bytes currently in the GPS buffer
+                while (GPS.available()) {
+                    GPS.read();  // reads ONE byte
 
                     if (GPS.newNMEAreceived()) {
+                        // Parse only good sentences
                         if (!GPS.parse(GPS.lastNMEA())) {
-                            // bad sentence, skip it
-                            continue;
+                            continue;  // bad sentence, skip
                         }
 
+                        // Check for a valid fix with satellites
                         if (GPS.fix && GPS.satellites > 0) {
-                            /// calibrate here & save to data struct 
-                            pOutputData->gps_sats  = GPS.satellites;
-                            pOutputData->gps_lat   = GPS.latitude;
-                            pOutputData->gps_long  = GPS.longitude;
-                            pOutputData->gps_alt   = GPS.altitude;
+                            // Save into shared struct
+                            pOutputData->gps_sats = GPS.satellites;
+                            pOutputData->gps_lat  = GPS.latitude;
+                            pOutputData->gps_long = GPS.longitude;
+                            pOutputData->gps_alt  = GPS.altitude;
 
                             #ifdef DEBUG
                                 printf("GPS: fix OK\n");
-                                printf("GPS Uptime: %lu [ms]\n", (unsigned long)upTime);
+                                printf("GPS Uptime: %lu [ticks]\n", (unsigned long)upTime);
                                 printf("Satellites: %d\n", GPS.satellites);
                                 printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
                                 printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
                                 printf("Altitude:  %f [m]\n\n", GPS.altitude);
                             #endif
+
                             got_fix = true;
                             break;  // break while(GPS.available())
                         }
@@ -420,95 +435,112 @@ void Core1_task(void *pvParameter) {
                     printf("No token GPS!!!\n");
                 #endif
             }
+
+            // Give other tasks a chance
+            taskYIELD();
         }
+
         #ifdef DEBUG
             if (!got_fix) {
                 printf("GPS: no valid fix this cycle\n");
             }
         #endif
-
-
-        /// SD card saving (Append data) - get all data
-        // only txt works. csv triggers watchdog
-        // Time start writing is limited to GPS having a fix or not
-        sdData = SD.open("/SD_data.txt", FILE_APPEND);
-        if (sdData) {
-            if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
-                sdData.println(
-                            "time_ms,"
-                            "bmp_temp,bmp_press,bmp_alt,"
-                            "adxl_acc_x,adxl_acc_y,adxl_acc_z,"
-                            "lsm_acc_x,lsm_acc_y,lsm_acc_z,"
-                            "lsm_gyro_x,lsm_gyro_y,lsm_gyro_z,lsm_temp,"
-                            "bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,"
-                            "bno_acc_x,bno_acc_y,bno_acc_z,"
-                            "bno_gyro_x,bno_gyro_y,bno_gyro_z,"
-                            "bno_mag_x,bno_mag_y,bno_mag_z,"
-                            "bno_ori_x,bno_ori_y,bno_ori_z,"
-                            "gps_sats,gps_lat,gps_long,gps_alt"
-                            );
-            }
-
-            /// CurrentTime 
-            sdData.print(millis()); sdData.print(',');
-
-            /// BMP
-            sdData.print(gOutputData.bmp_temp);   sdData.print(',');
-            sdData.print(gOutputData.bmp_press);  sdData.print(',');
-            sdData.print(gOutputData.bmp_alt);    sdData.print(',');
-
-            /// ADXL
-            sdData.print(gOutputData.adxl_acc_x); sdData.print(',');
-            sdData.print(gOutputData.adxl_acc_y); sdData.print(',');
-            sdData.print(gOutputData.adxl_acc_z); sdData.print(',');
-
-            /// LSM (accel + gyro + temp)
-            sdData.print(gOutputData.lsm_acc_x);  sdData.print(',');
-            sdData.print(gOutputData.lsm_acc_y);  sdData.print(',');
-            sdData.print(gOutputData.lsm_acc_z);  sdData.print(',');
-
-            sdData.print(gOutputData.lsm_gyro_x); sdData.print(',');
-            sdData.print(gOutputData.lsm_gyro_y); sdData.print(',');
-            sdData.print(gOutputData.lsm_gyro_z); sdData.print(',');
-            sdData.print(gOutputData.lsm_temp);   sdData.print(',');
-
-            /// BNO (quar, acc, gyro, mag, ori, temp)
-            sdData.print(gOutputData.bno_quar_w);  sdData.print(',');
-            sdData.print(gOutputData.bno_quar_x);  sdData.print(',');
-            sdData.print(gOutputData.bno_quar_y);  sdData.print(',');
-            sdData.print(gOutputData.bno_quar_z);  sdData.print(',');
-
-            sdData.print(gOutputData.bno_acc_x);  sdData.print(',');
-            sdData.print(gOutputData.bno_acc_y);  sdData.print(',');
-            sdData.print(gOutputData.bno_acc_z);  sdData.print(',');
-
-            sdData.print(gOutputData.bno_gyro_x); sdData.print(',');
-            sdData.print(gOutputData.bno_gyro_y); sdData.print(',');
-            sdData.print(gOutputData.bno_gyro_z); sdData.print(',');
-
-            sdData.print(gOutputData.bno_mag_x);  sdData.print(',');
-            sdData.print(gOutputData.bno_mag_y);  sdData.print(',');
-            sdData.print(gOutputData.bno_mag_z);  sdData.print(',');
-
-            sdData.print(gOutputData.bno_ori_x);  sdData.print(',');
-            sdData.print(gOutputData.bno_ori_y);  sdData.print(',');
-            sdData.print(gOutputData.bno_ori_z);  sdData.print(',');
-
-            /// GPS
-            sdData.print(gOutputData.gps_sats);   sdData.print(',');
-            sdData.print(gOutputData.gps_lat);    sdData.print(',');
-            sdData.print(gOutputData.gps_long);   sdData.print(',');
-            sdData.print(gOutputData.gps_alt);
-
-            sdData.println(); 
-            #ifdef DEBUG
-            printf("Write Success!!\n");
-            #endif
-            sdData.flush();
-        } else {
-            printf("Cant open file!!!\n");
-        }
+        
 
         vTaskDelay(pdMS_TO_TICKS(110)); // REQUIRED DELAY >=110ms (most optimized)
     }
+}
+
+
+void Core1_task2(void *pvParameter) {
+    /// Pointers holder
+    TaskParams_t *pTask       = (TaskParams_t *)pvParameter;
+
+    while (1) {
+        /// SD card saving (Append data) - get all data
+        // only txt works. csv triggers watchdog
+        if (gHasSD){
+            sdData = SD.open("/SD_data.txt", FILE_APPEND);
+            if (sdData) {
+                if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
+                    sdData.println(
+                                "time_ms,"
+                                "bmp_temp,bmp_press,bmp_alt,"
+                                "adxl_acc_x,adxl_acc_y,adxl_acc_z,"
+                                "lsm_acc_x,lsm_acc_y,lsm_acc_z,"
+                                "lsm_gyro_x,lsm_gyro_y,lsm_gyro_z,lsm_temp,"
+                                "bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,"
+                                "bno_acc_x,bno_acc_y,bno_acc_z,"
+                                "bno_gyro_x,bno_gyro_y,bno_gyro_z,"
+                                "bno_mag_x,bno_mag_y,bno_mag_z,"
+                                "bno_ori_x,bno_ori_y,bno_ori_z,"
+                                "gps_sats,gps_lat,gps_long,gps_alt"
+                                );
+                }
+
+                /// CurrentTime 
+                sdData.print(millis()); sdData.print(',');
+
+                /// BMP
+                sdData.print(gOutputData.bmp_temp);   sdData.print(',');
+                sdData.print(gOutputData.bmp_press);  sdData.print(',');
+                sdData.print(gOutputData.bmp_alt);    sdData.print(',');
+
+                /// ADXL
+                sdData.print(gOutputData.adxl_acc_x); sdData.print(',');
+                sdData.print(gOutputData.adxl_acc_y); sdData.print(',');
+                sdData.print(gOutputData.adxl_acc_z); sdData.print(',');
+
+                /// LSM (accel + gyro + temp)
+                sdData.print(gOutputData.lsm_acc_x);  sdData.print(',');
+                sdData.print(gOutputData.lsm_acc_y);  sdData.print(',');
+                sdData.print(gOutputData.lsm_acc_z);  sdData.print(',');
+
+                sdData.print(gOutputData.lsm_gyro_x); sdData.print(',');
+                sdData.print(gOutputData.lsm_gyro_y); sdData.print(',');
+                sdData.print(gOutputData.lsm_gyro_z); sdData.print(',');
+                sdData.print(gOutputData.lsm_temp);   sdData.print(',');
+
+                /// BNO (quar, acc, gyro, mag, ori, temp)
+                sdData.print(gOutputData.bno_quar_w);  sdData.print(',');
+                sdData.print(gOutputData.bno_quar_x);  sdData.print(',');
+                sdData.print(gOutputData.bno_quar_y);  sdData.print(',');
+                sdData.print(gOutputData.bno_quar_z);  sdData.print(',');
+
+                sdData.print(gOutputData.bno_acc_x);  sdData.print(',');
+                sdData.print(gOutputData.bno_acc_y);  sdData.print(',');
+                sdData.print(gOutputData.bno_acc_z);  sdData.print(',');
+
+                sdData.print(gOutputData.bno_gyro_x); sdData.print(',');
+                sdData.print(gOutputData.bno_gyro_y); sdData.print(',');
+                sdData.print(gOutputData.bno_gyro_z); sdData.print(',');
+
+                sdData.print(gOutputData.bno_mag_x);  sdData.print(',');
+                sdData.print(gOutputData.bno_mag_y);  sdData.print(',');
+                sdData.print(gOutputData.bno_mag_z);  sdData.print(',');
+
+                sdData.print(gOutputData.bno_ori_x);  sdData.print(',');
+                sdData.print(gOutputData.bno_ori_y);  sdData.print(',');
+                sdData.print(gOutputData.bno_ori_z);  sdData.print(',');
+
+                /// GPS
+                sdData.print(gOutputData.gps_sats);   sdData.print(',');
+                sdData.print(gOutputData.gps_lat);    sdData.print(',');
+                sdData.print(gOutputData.gps_long);   sdData.print(',');
+                sdData.print(gOutputData.gps_alt);
+
+                sdData.println(); 
+                #ifdef DEBUG
+                    printf("Write Success!!\n");
+                #endif
+                sdData.flush();
+            } else {
+                printf("Cant open file!!!\n");
+            }
+        } else {
+            printf("No SD card found!!!\n");
+        }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(100));
 }
