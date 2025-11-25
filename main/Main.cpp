@@ -5,6 +5,7 @@
 //:  important comments
 
 #include <stdio.h>
+#include <bitset>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -46,8 +47,8 @@
 
 /// Lo-Ra Control Pins
 #define LORA_RST 21
-#define LORA_IRQ 19
-#define LORA_FREQ 915E6
+#define LORA_G0_INT 19
+#define LORA_FREQ 915E6 /// 915E6 for 915 MHz
 
 /// Debug control definitions
 #define DEBUG
@@ -65,6 +66,15 @@ typedef struct{
           bno_mag_x,  bno_mag_y,  bno_mag_z,
           bno_ori_x,  bno_ori_y,  bno_ori_z = 0;
     float gps_sats, gps_lat, gps_long, gps_alt = 0;
+
+    uint8_t sensors_ok = 0x00000000; /// Bit 0: BMP
+                                     /// Bit 1: ADXL
+                                     /// Bit 2: LSM
+                                     /// Bit 3: BNO
+                                     /// Bit 4: GPS
+                                     /// Bit 5: SD
+                                     /// Bit 6: Lora
+
 } OutputData_t; 
 
 /// Pointers to hold global objects address
@@ -102,10 +112,12 @@ imu::Quaternion gQuaternion;
     gI2cMutex :                   I2C bus mutex to manage protocol traffic
 */
 uint32_t upTime;             
-SemaphoreHandle_t gSpiMutex; 
+SemaphoreHandle_t gSpiMutex_BAL; /// SPI mutex for BMP + ADXL + LSM
+SemaphoreHandle_t gSpiMutex_SL; /// SPI mutex for SD + Lora
 SemaphoreHandle_t gI2cMutex; 
 bool gHasSD = false;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  // tune as needed
+static uint32_t loraCounter = 0;
 
 //Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -115,6 +127,7 @@ Adafruit_BNO055     BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS        GPS(&Wire);
 SPIClass            SPI2(HSPI);
 File                sdData;
+
 
 
 void init_spi() {
@@ -132,6 +145,15 @@ void init_spi() {
     } else {
         Serial.println("SD init OK");
     }
+    
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_G0_INT);
+    if (!LoRa.begin(LORA_FREQ)) {   
+        Serial.println("LoRa init failed!");
+    } else {
+        Serial.println("LoRa init OK");
+    }
+    
 }
 
 void init_I2C() {
@@ -159,8 +181,10 @@ extern "C" void app_main()
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 
     /// Create New Mutex
-    gSpiMutex = xSemaphoreCreateMutex();
-    gI2cMutex = xSemaphoreCreateMutex();
+    gSpiMutex_BAL = xSemaphoreCreateMutex();
+    gSpiMutex_SL  = xSemaphoreCreateMutex();
+    gI2cMutex     = xSemaphoreCreateMutex();
+    
 
     /// Pointer holder heap allocation
     TaskParams_t *pParams    = (TaskParams_t*)malloc(sizeof(TaskParams_t));
@@ -183,10 +207,10 @@ extern "C" void app_main()
                             1, NULL, 0);
 
     xTaskCreatePinnedToCore(Core1_task1, "Core1_task1", 5000, (void*)pParams,
-                            2, NULL, 1);
+                            1, NULL, 1);
 
     xTaskCreatePinnedToCore(Core1_task2, "Core1_task2", 5000, (void*)pParams,
-                            1, NULL, 1);
+                            2, NULL, 1);
 }
 
 void Core0_task(void *pvParameter) {
@@ -205,10 +229,10 @@ void Core0_task(void *pvParameter) {
     while(1)
     {
       /// BMP functions + calibrations
-      if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
           upTime = xTaskGetTickCount();
           bool bmp_ok = BMP.performReading();
-          xSemaphoreGive(gSpiMutex);
+          xSemaphoreGive(gSpiMutex_BAL);
 
         if (bmp_ok) {
             // calibrate here & save to data struct 
@@ -231,10 +255,10 @@ void Core0_task(void *pvParameter) {
           
 
       /// ADXL function + calibrations
-      if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
         bool adxl_ok = ADXL.getEvent(pEventADXL);
-        xSemaphoreGive(gSpiMutex);
+        xSemaphoreGive(gSpiMutex_BAL);
 
         if (adxl_ok) {
             // calibrate here & save to data struct 
@@ -257,10 +281,10 @@ void Core0_task(void *pvParameter) {
 
 
       /// LSM function + calibrations
-      if (xSemaphoreTake(gSpiMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+      if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
         bool lsm_ok = LSM.getEvent(pEventLSM_accel, pEventLSM_gyro, pEventLSM_temp);
-        xSemaphoreGive(gSpiMutex);
+        xSemaphoreGive(gSpiMutex_BAL);
 
         if (lsm_ok) {
             // calibrate here & save to data struct 
@@ -355,7 +379,16 @@ void Core1_task1(void *pvParameter) {
                 pOutputData->bno_acc_y  = pEventBNO_accel->acceleration.y;
                 pOutputData->bno_acc_z  = pEventBNO_accel->acceleration.z - 9.35;
 
-                #ifdef DEBUG
+            }
+        } else {
+
+            #ifdef DEBUG
+                printf("No token BNO!!!\n");
+            #endif
+
+        }
+
+        #ifdef DEBUG
                         printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
 
                         printf("BNO Quaternion:\n");
@@ -384,15 +417,6 @@ void Core1_task1(void *pvParameter) {
                         printf("BNO Accel Y: %f\n", pOutputData->bno_acc_y);
                         printf("BNO Accel Z: %f\n\n", pOutputData->bno_acc_z);
                 #endif
-                
-            }
-        } else {
-
-            #ifdef DEBUG
-                printf("No token BNO!!!\n");
-            #endif
-
-        }
 
 
 
@@ -450,15 +474,6 @@ void Core1_task1(void *pvParameter) {
                             pOutputData->gps_long = GPS.longitude;
                             pOutputData->gps_alt  = GPS.altitude;
 
-                            #ifdef DEBUG
-                                printf("GPS: fix OK\n");
-                                printf("GPS Uptime: %lu [ticks]\n", (unsigned long)upTime);
-                                printf("Satellites: %d\n", GPS.satellites);
-                                printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
-                                printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
-                                printf("Altitude:  %f [m]\n\n", GPS.altitude);
-                            #endif
-
                             got_fix = true;
                             break;  // break while(GPS.available())
                         }
@@ -485,9 +500,19 @@ void Core1_task1(void *pvParameter) {
                 printf("GPS: no valid fix this cycle\n");
             }
         #endif
+
+
+        #ifdef DEBUG
+            printf("GPS: fix OK\n");
+            printf("GPS Uptime: %lu [ticks]\n", (unsigned long)upTime);
+            printf("Satellites: %d\n", GPS.satellites);
+            printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
+            printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
+            printf("Altitude:  %f [m]\n\n", GPS.altitude);
+        #endif
         
 
-        vTaskDelay(pdMS_TO_TICKS(110)); // Stable, Unoptimized
+        vTaskDelay(pdMS_TO_TICKS(500)); // Stable, Unoptimized
     }
 }
 
@@ -499,98 +524,135 @@ void Core1_task2(void *pvParameter) {
 
     while (1) {
         /// SD card saving (Append data) - get all data
-        // only txt works. csv triggers watchdog
-        if (gHasSD){
-            sdData = SD.open("/SD_data.txt", FILE_APPEND);
-            if (sdData) {
-                if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
-                    sdData.println(
-                                "time_ms,"
-                                "bmp_temp,bmp_press,bmp_alt,"
-                                "adxl_acc_x,adxl_acc_y,adxl_acc_z,"
-                                "lsm_acc_x,lsm_acc_y,lsm_acc_z,"
-                                "lsm_gyro_x,lsm_gyro_y,lsm_gyro_z,lsm_temp,"
-                                "bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,"
-                                "bno_acc_x,bno_acc_y,bno_acc_z,"
-                                "bno_gyro_x,bno_gyro_y,bno_gyro_z,"
-                                "bno_mag_x,bno_mag_y,bno_mag_z,"
-                                "bno_ori_x,bno_ori_y,bno_ori_z,"
-                                "gps_sats,gps_lat,gps_long,gps_alt"
-                                );
+        /// Only txt works. csv triggers watchdog
+        if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
+            if (gHasSD){
+                sdData = SD.open("/SD_data.txt", FILE_APPEND);
+                if (sdData) {
+                    if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
+                        sdData.println(
+                                    "time_ms,"
+                                    "bmp_temp,bmp_press,bmp_alt,"
+                                    "adxl_acc_x,adxl_acc_y,adxl_acc_z,"
+                                    "lsm_acc_x,lsm_acc_y,lsm_acc_z,"
+                                    "lsm_gyro_x,lsm_gyro_y,lsm_gyro_z,lsm_temp,"
+                                    "bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,"
+                                    "bno_acc_x,bno_acc_y,bno_acc_z,"
+                                    "bno_gyro_x,bno_gyro_y,bno_gyro_z,"
+                                    "bno_mag_x,bno_mag_y,bno_mag_z,"
+                                    "bno_ori_x,bno_ori_y,bno_ori_z,"
+                                    "gps_sats,gps_lat,gps_long,gps_alt"
+                                    );
+                    }
+
+                    /// CurrentTime 
+                    sdData.print(millis()); sdData.print(',');
+
+                    /// BMP
+                    sdData.print(gOutputData.bmp_temp);   sdData.print(',');
+                    sdData.print(gOutputData.bmp_press);  sdData.print(',');
+                    sdData.print(gOutputData.bmp_alt);    sdData.print(',');
+
+                    /// ADXL
+                    sdData.print(gOutputData.adxl_acc_x); sdData.print(',');
+                    sdData.print(gOutputData.adxl_acc_y); sdData.print(',');
+                    sdData.print(gOutputData.adxl_acc_z); sdData.print(',');
+
+                    /// LSM (accel + gyro + temp)
+                    sdData.print(gOutputData.lsm_acc_x);  sdData.print(',');
+                    sdData.print(gOutputData.lsm_acc_y);  sdData.print(',');
+                    sdData.print(gOutputData.lsm_acc_z);  sdData.print(',');
+
+                    sdData.print(gOutputData.lsm_gyro_x); sdData.print(',');
+                    sdData.print(gOutputData.lsm_gyro_y); sdData.print(',');
+                    sdData.print(gOutputData.lsm_gyro_z); sdData.print(',');
+                    sdData.print(gOutputData.lsm_temp);   sdData.print(',');
+
+                    /// BNO (quar, acc, gyro, mag, ori, temp)
+                    sdData.print(gOutputData.bno_quar_w);  sdData.print(',');
+                    sdData.print(gOutputData.bno_quar_x);  sdData.print(',');
+                    sdData.print(gOutputData.bno_quar_y);  sdData.print(',');
+                    sdData.print(gOutputData.bno_quar_z);  sdData.print(',');
+
+                    sdData.print(gOutputData.bno_acc_x);  sdData.print(',');
+                    sdData.print(gOutputData.bno_acc_y);  sdData.print(',');
+                    sdData.print(gOutputData.bno_acc_z);  sdData.print(',');
+
+                    sdData.print(gOutputData.bno_gyro_x); sdData.print(',');
+                    sdData.print(gOutputData.bno_gyro_y); sdData.print(',');
+                    sdData.print(gOutputData.bno_gyro_z); sdData.print(',');
+
+                    sdData.print(gOutputData.bno_mag_x);  sdData.print(',');
+                    sdData.print(gOutputData.bno_mag_y);  sdData.print(',');
+                    sdData.print(gOutputData.bno_mag_z);  sdData.print(',');
+
+                    sdData.print(gOutputData.bno_ori_x);  sdData.print(',');
+                    sdData.print(gOutputData.bno_ori_y);  sdData.print(',');
+                    sdData.print(gOutputData.bno_ori_z);  sdData.print(',');
+
+                    /// GPS
+                    sdData.print(gOutputData.gps_sats);   sdData.print(',');
+                    sdData.print(gOutputData.gps_lat);    sdData.print(',');
+                    sdData.print(gOutputData.gps_long);   sdData.print(',');
+                    sdData.print(gOutputData.gps_alt);
+
+                    sdData.println(); 
+
+                    #ifdef DEBUG
+                        printf("Write Success!!\n");
+                    #endif
+
+                    sdData.flush();
+                    xSemaphoreGive(gSpiMutex_SL);
+                } else {
+                    xSemaphoreGive(gSpiMutex_SL);
+                    
+                    #ifdef DEBUG
+                        printf("Cant open file!!!\n");
+                    #endif
+
                 }
-
-                /// CurrentTime 
-                sdData.print(millis()); sdData.print(',');
-
-                /// BMP
-                sdData.print(gOutputData.bmp_temp);   sdData.print(',');
-                sdData.print(gOutputData.bmp_press);  sdData.print(',');
-                sdData.print(gOutputData.bmp_alt);    sdData.print(',');
-
-                /// ADXL
-                sdData.print(gOutputData.adxl_acc_x); sdData.print(',');
-                sdData.print(gOutputData.adxl_acc_y); sdData.print(',');
-                sdData.print(gOutputData.adxl_acc_z); sdData.print(',');
-
-                /// LSM (accel + gyro + temp)
-                sdData.print(gOutputData.lsm_acc_x);  sdData.print(',');
-                sdData.print(gOutputData.lsm_acc_y);  sdData.print(',');
-                sdData.print(gOutputData.lsm_acc_z);  sdData.print(',');
-
-                sdData.print(gOutputData.lsm_gyro_x); sdData.print(',');
-                sdData.print(gOutputData.lsm_gyro_y); sdData.print(',');
-                sdData.print(gOutputData.lsm_gyro_z); sdData.print(',');
-                sdData.print(gOutputData.lsm_temp);   sdData.print(',');
-
-                /// BNO (quar, acc, gyro, mag, ori, temp)
-                sdData.print(gOutputData.bno_quar_w);  sdData.print(',');
-                sdData.print(gOutputData.bno_quar_x);  sdData.print(',');
-                sdData.print(gOutputData.bno_quar_y);  sdData.print(',');
-                sdData.print(gOutputData.bno_quar_z);  sdData.print(',');
-
-                sdData.print(gOutputData.bno_acc_x);  sdData.print(',');
-                sdData.print(gOutputData.bno_acc_y);  sdData.print(',');
-                sdData.print(gOutputData.bno_acc_z);  sdData.print(',');
-
-                sdData.print(gOutputData.bno_gyro_x); sdData.print(',');
-                sdData.print(gOutputData.bno_gyro_y); sdData.print(',');
-                sdData.print(gOutputData.bno_gyro_z); sdData.print(',');
-
-                sdData.print(gOutputData.bno_mag_x);  sdData.print(',');
-                sdData.print(gOutputData.bno_mag_y);  sdData.print(',');
-                sdData.print(gOutputData.bno_mag_z);  sdData.print(',');
-
-                sdData.print(gOutputData.bno_ori_x);  sdData.print(',');
-                sdData.print(gOutputData.bno_ori_y);  sdData.print(',');
-                sdData.print(gOutputData.bno_ori_z);  sdData.print(',');
-
-                /// GPS
-                sdData.print(gOutputData.gps_sats);   sdData.print(',');
-                sdData.print(gOutputData.gps_lat);    sdData.print(',');
-                sdData.print(gOutputData.gps_long);   sdData.print(',');
-                sdData.print(gOutputData.gps_alt);
-
-                sdData.println(); 
-
-                #ifdef DEBUG
-                    printf("Write Success!!\n");
-                #endif
-
-                sdData.flush();
             } else {
+                xSemaphoreGive(gSpiMutex_SL);
 
                 #ifdef DEBUG
-                    printf("Cant open file!!!\n");
+                    printf("No SD card found!!!\n");
                 #endif
-
+                
             }
         } else {
 
             #ifdef DEBUG
-                printf("No SD card found!!!\n");
+                printf("No Token SD");
             #endif
 
         }
-        vTaskDelay(pdMS_TO_TICKS(100)); // Stable, Unoptimized
+
+
+
+        /// Lora function
+        if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
+
+            #ifdef DEBUG
+                printf("Lora sending packet------------------\n");
+            #endif
+            
+            LoRa.beginPacket();
+            /// Packet Counter
+            LoRa.write((uint8_t*)&loraCounter, sizeof(loraCounter));
+            /// Send telemetry payload
+            LoRa.write((uint8_t*)&gOutputData, sizeof(gOutputData));
+            LoRa.endPacket();
+            loraCounter++;
+            xSemaphoreGive(gSpiMutex_SL);
+        }
+        else {
+            
+            #ifdef DEBUG
+                printf("No Token Lora!!!!!");
+            #endif
+
+        }
+        vTaskDelay(pdMS_TO_TICKS(300)); // Stable, Unoptimized
     }
 }
