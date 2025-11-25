@@ -105,6 +105,7 @@ uint32_t upTime;
 SemaphoreHandle_t gSpiMutex; 
 SemaphoreHandle_t gI2cMutex; 
 bool gHasSD = false;
+const int MAX_GPS_BYTES_PER_LOOP = 64;  // tune as needed
 
 //Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -189,6 +190,7 @@ extern "C" void app_main()
 }
 
 void Core0_task(void *pvParameter) {
+    // Using pointers here to help refactor code faster later
     /// pointers holder 
     TaskParams_t    *pTask           = (TaskParams_t*)pvParameter;
     /// BMP pointer
@@ -289,12 +291,13 @@ void Core0_task(void *pvParameter) {
           #endif
       }
 
-      vTaskDelay(pdMS_TO_TICKS(10)); //Delay for stablity of watchdog
+      vTaskDelay(pdMS_TO_TICKS(10)); // Stable, Unoptimized
 
     }
 }
 
 void Core1_task1(void *pvParameter) {
+    // Using pointers here to help refactor code faster later
     /// Pointers holder
     TaskParams_t *pTask       = (TaskParams_t *)pvParameter;
     /// GPS pointer
@@ -313,6 +316,10 @@ void Core1_task1(void *pvParameter) {
         bool gyro_ok   = false;
         bool mag_ok    = false;
         bool accel_ok  = false;
+
+        #ifdef DEBUG
+            printf("[BNO] trying to take I2C mutex...\n");
+        #endif
 
         if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
@@ -377,37 +384,66 @@ void Core1_task1(void *pvParameter) {
                         printf("BNO Accel Y: %f\n", pOutputData->bno_acc_y);
                         printf("BNO Accel Z: %f\n\n", pOutputData->bno_acc_z);
                 #endif
+                
             }
         } else {
+
             #ifdef DEBUG
                 printf("No token BNO!!!\n");
             #endif
+
         }
 
 
 
         /// GPS function
+        int bytes_processed = 0;
         bool     got_fix     = false;
         uint32_t cycle_start = millis();
         uint32_t timeout     = cycle_start + 200;  // ~200 ms window for this cycle
 
-        while ((millis() < timeout) && !got_fix) {
+        while ((millis() < timeout) && !got_fix) { // Might be redudant since data is capped (Stable - Unoptimized)
             // Try to grab I2C bus briefly
+
+            #ifdef DEBUG
+                printf("GPS starts running***************\n");
+            #endif
+
             if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+
+                #ifdef DEBUG
+                    printf("GPS got Mutex!!!!!!!!!!!!!!!!!!!!!!!!!!***************\n");
+                #endif
+
                 upTime = xTaskGetTickCount();
 
-                // Drain all bytes currently in the GPS buffer
-                while (GPS.available()) {
+                // Drain only certain bytes currently in the GPS buffer to PREVENT INFINITE LOOP (Stable-Unoptimized)
+                while (GPS.available() && bytes_processed < MAX_GPS_BYTES_PER_LOOP) {
+
+                    #ifdef DEBUG
+                        printf("GPS available---------------------------------------\n");
+                    #endif    
+
                     GPS.read();  // reads ONE byte
 
                     if (GPS.newNMEAreceived()) {
                         // Parse only good sentences
                         if (!GPS.parse(GPS.lastNMEA())) {
+
+                            #ifdef DEBUG
+                                printf("GPS bad sentence @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n");
+                            #endif
+
                             continue;  // bad sentence, skip
                         }
 
                         // Check for a valid fix with satellites
                         if (GPS.fix && GPS.satellites > 0) {
+
+                            #ifdef DEBUG
+                                printf("GPS saving data to struct\n");
+                            #endif
+
                             // Save into shared struct
                             pOutputData->gps_sats = GPS.satellites;
                             pOutputData->gps_lat  = GPS.latitude;
@@ -427,17 +463,21 @@ void Core1_task1(void *pvParameter) {
                             break;  // break while(GPS.available())
                         }
                     }
+                    bytes_processed++;
                 }
+
+                #ifdef DEBUG
+                    printf("GPS releasing token----------------------------------\n");
+                #endif
 
                 xSemaphoreGive(gI2cMutex);
             } else {
+
                 #ifdef DEBUG
                     printf("No token GPS!!!\n");
                 #endif
-            }
 
-            // Give other tasks a chance
-            taskYIELD();
+            }
         }
 
         #ifdef DEBUG
@@ -447,12 +487,13 @@ void Core1_task1(void *pvParameter) {
         #endif
         
 
-        vTaskDelay(pdMS_TO_TICKS(110)); // REQUIRED DELAY >=110ms (most optimized)
+        vTaskDelay(pdMS_TO_TICKS(110)); // Stable, Unoptimized
     }
 }
 
 
 void Core1_task2(void *pvParameter) {
+    // Using pointers here to help refactor code faster later
     /// Pointers holder
     TaskParams_t *pTask       = (TaskParams_t *)pvParameter;
 
@@ -530,17 +571,26 @@ void Core1_task2(void *pvParameter) {
                 sdData.print(gOutputData.gps_alt);
 
                 sdData.println(); 
+
                 #ifdef DEBUG
                     printf("Write Success!!\n");
                 #endif
+
                 sdData.flush();
             } else {
-                printf("Cant open file!!!\n");
+
+                #ifdef DEBUG
+                    printf("Cant open file!!!\n");
+                #endif
+
             }
         } else {
-            printf("No SD card found!!!\n");
-        }
-    }
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+            #ifdef DEBUG
+                printf("No SD card found!!!\n");
+            #endif
+
+        }
+        vTaskDelay(pdMS_TO_TICKS(100)); // Stable, Unoptimized
+    }
 }
