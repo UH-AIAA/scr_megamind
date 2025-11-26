@@ -176,7 +176,7 @@ void init_spi() {
     /// Set pins & Initialize Lora to defined frequency
     LoRa.setSPI(SPI2);
     LoRa.setPins(LORA_CS, LORA_RST, LORA_G0_INT);
-    gOutputData.lora_ok = oRa.begin(LORA_FREQ);
+    gOutputData.lora_ok = LoRa.begin(LORA_FREQ);
 }
 
 void init_I2C() {
