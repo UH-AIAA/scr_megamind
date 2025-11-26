@@ -56,7 +56,15 @@
 /// Debug control 
 #define DEBUG
 
+enum FlightState {
+    STATE_IDLE = 0,
+    STATE_ASCENT = 1,
+    STATE_DESCENT = 2,
+    STATE_LANDED = 3,
+};
+
 /// @brief Calibrated Data struct
+///        SPI & I2C buses, sensors data and GPS fix
 typedef struct{
     float bmp_temp, bmp_press, bmp_alt = 0;
     float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp = 0;
@@ -70,7 +78,7 @@ typedef struct{
           bno_ori_x,  bno_ori_y,  bno_ori_z = 0;
     float gps_sats, gps_lat, gps_long, gps_alt = 0;
     
-    /// @brief SPI & I2C buses, sensors data and GPS fix
+    
     bool spi1_ok = false;
     bool spi2_ok = false;
     bool i2c_ok = false;
@@ -81,6 +89,8 @@ typedef struct{
     bool gpsFix_ok = false;
     bool sd_ok = false;
     bool lora_ok = false;
+
+    // FlightState flightState;
 } OutputData_t; 
 
 /// @brief Pointers to hold global objects address
@@ -96,6 +106,8 @@ typedef struct{
                     *pAccelerometer;
     imu::Quaternion *pQuaternion;
 }TaskParams_t; 
+
+
 
 /*
 @brief 
@@ -118,7 +130,7 @@ imu::Quaternion gQuaternion;
     gSpiMutex_SL:                 SPI mutex for Sd + Lora
     gI2cMutex :                   I2C mutex for Bno + Gps
     gHasSD:                       Check for micro SD card
-    MAX_GPS_BYTES_PER_LOOP:       Capped amount of bytes permitted when reading GPS data
+    MAX_GPS_BYTES_PER_LOOP:       Capped amount of bytes permitted when reading GPS data (tune as needed)
     loraCounter:                  Counter to count data packets sended
 */
 uint32_t upTime;             
@@ -126,8 +138,14 @@ SemaphoreHandle_t gSpiMutex_BAL;
 SemaphoreHandle_t gSpiMutex_SL; 
 SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
-const int MAX_GPS_BYTES_PER_LOOP = 64;  // tune as needed
 static uint32_t loraCounter = 0;
+const int MAX_GPS_BYTES_PER_LOOP = 64;  
+
+/// @brief  State Machine constants
+const int ACCEL_LAUNCH_G = 2; 
+const float GRAVITY_FORCE = 9.80665; 
+const float idle_max_adxl_accel = 0.8;
+const float launch_threshold = idle_max_adxl_accel * 2;
 
 /// Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -173,7 +191,8 @@ void init_spi() {
         gOutputData.spi2_ok = false;
     }
     /// Initialize SD
-    if (SD.begin(SD_CS, SPI2, SD_RATE)) { 
+    gHasSD = SD.begin(SD_CS, SPI2, SD_RATE);
+    if (gHasSD) { 
         gOutputData.sd_ok = true;
     } else {
         gOutputData.sd_ok = false;
@@ -204,6 +223,7 @@ void init_I2C() {
 }
 
 void Core0_task(void *pvParameter);
+// void Core0_stateMachine(void *pvParameter);
 void Core1_task1(void *pvParameter);
 void Core1_task2(void *pvParameter);
 
@@ -359,6 +379,33 @@ void Core0_task(void *pvParameter) {
       vTaskDelay(pdMS_TO_TICKS(10)); // Stable, Unoptimized
 
     }
+}
+
+void Core0_stateMachine(void *pvParameter){
+    // Using pointers here to help refactor code faster later
+    /// pointers holder 
+    TaskParams_t    *pTask           = (TaskParams_t*)pvParameter;
+    /// BMP pointer
+    OutputData_t    *pOutputData     = pTask->pOutputData;
+    ///ADXL pointer
+    sensors_event_t *pEventADXL      = pTask->pEventADXL;
+    ///LSM pointer
+    sensors_event_t *pEventLSM_accel = pTask->pEventLSM_accel;
+    sensors_event_t *pEventLSM_gyro  = pTask->pEventLSM_gyro;
+    sensors_event_t *pEventLSM_temp  = pTask->pEventLSM_temp;
+
+    // switch (pOutputData->flightState){
+    //     case STATE_IDLE: 
+            
+    //     case STATE_ASCENT:
+
+    //     case STATE_ASCENT:
+
+    //     case STATE_LANDED:
+    // }
+
+
+
 }
 
 void Core1_task1(void *pvParameter) {
@@ -694,6 +741,6 @@ void Core1_task2(void *pvParameter) {
             #endif
 
         }
-        vTaskDelay(pdMS_TO_TICKS(300)); // Stable, Unoptimized
+        vTaskDelay(pdMS_TO_TICKS(400)); // Stable, Unoptimized
     }
 }
