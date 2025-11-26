@@ -24,17 +24,17 @@
 #include "SD.h"
 
 /// Sensor SPI init
-#define SPI_SCLK_PIN 12
-#define SPI_MISO_PIN 13 //SDO
-#define SPI_MOSI_PIN 11 //SDA
+#define SPI_SCLK_PIN 12 /// CLK
+#define SPI_MISO_PIN 13 /// SDO
+#define SPI_MOSI_PIN 11 /// SDA
 #define SPI_MAX_TRSZ 4096
 
 /// SD+LoRa SPI Init
-#define VSPI_SCLK_PIN 18
-#define VSPI_MISO_PIN 17
-#define VSPI_MOSI_PIN 16
+#define VSPI_SCLK_PIN 18 /// CLK
+#define VSPI_MISO_PIN 17 /// SDO
+#define VSPI_MOSI_PIN 16 /// SDO
 
-/// I^2C Init
+/// I2C Init
 #define I2C_SDA 8
 #define I2C_SCL 9
 
@@ -48,12 +48,15 @@
 /// Lo-Ra Control Pins
 #define LORA_RST 21
 #define LORA_G0_INT 19
-#define LORA_FREQ 915E6 /// 915E6 for 915 MHz
 
-/// Debug control definitions
+/// Define frequency Lora + SD
+#define LORA_FREQ 915E6 /// 915MHz frequency for Lora
+#define SD_RATE 20E6    /// 20MHz rate for SD 
+
+/// Debug control 
 #define DEBUG
 
-/// Calibrated data struct
+/// @brief Calibrated Data struct
 typedef struct{
     float bmp_temp, bmp_press, bmp_alt = 0;
     float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp = 0;
@@ -66,18 +69,21 @@ typedef struct{
           bno_mag_x,  bno_mag_y,  bno_mag_z,
           bno_ori_x,  bno_ori_y,  bno_ori_z = 0;
     float gps_sats, gps_lat, gps_long, gps_alt = 0;
-
-    uint8_t sensors_ok = 0x00000000; /// Bit 0: BMP
-                                     /// Bit 1: ADXL
-                                     /// Bit 2: LSM
-                                     /// Bit 3: BNO
-                                     /// Bit 4: GPS
-                                     /// Bit 5: SD
-                                     /// Bit 6: Lora
-
+    
+    /// @brief SPI & I2C buses, sensors data and GPS fix
+    bool spi1_ok = false;
+    bool spi2_ok = false;
+    bool i2c_ok = false;
+    bool bmp_ok = false;
+    bool adxl_ok = false;
+    bool lsm_ok = false;
+    bool bno_ok = false;
+    bool gpsFix_ok = false;
+    bool sd_ok = false;
+    bool lora_ok = false;
 } OutputData_t; 
 
-/// Pointers to hold global objects address
+/// @brief Pointers to hold global objects address
 typedef struct{
     OutputData_t    *pOutputData;
     sensors_event_t *pEventADXL,
@@ -108,18 +114,22 @@ imu::Quaternion gQuaternion;
 /*
 @brief 
     upTime:                       Current Output time [ms] of each sensor
-    gSpiMutex :                   SPI bus mutex to manage protocol traffic
-    gI2cMutex :                   I2C bus mutex to manage protocol traffic
+    gSpiMutex_BAL:                SPI mutex for Bmp + Adxl + Lsm
+    gSpiMutex_SL:                 SPI mutex for Sd + Lora
+    gI2cMutex :                   I2C mutex for Bno + Gps
+    gHasSD:                       Check for micro SD card
+    MAX_GPS_BYTES_PER_LOOP:       Capped amount of bytes permitted when reading GPS data
+    loraCounter:                  Counter to count data packets sended
 */
 uint32_t upTime;             
-SemaphoreHandle_t gSpiMutex_BAL; /// SPI mutex for BMP + ADXL + LSM
-SemaphoreHandle_t gSpiMutex_SL; /// SPI mutex for SD + Lora
-SemaphoreHandle_t gI2cMutex; 
+SemaphoreHandle_t gSpiMutex_BAL; 
+SemaphoreHandle_t gSpiMutex_SL; 
+SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  // tune as needed
 static uint32_t loraCounter = 0;
 
-//Sensors Object Instantiation
+/// Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
 Adafruit_ADXL375    ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32  LSM;
@@ -131,35 +141,66 @@ File                sdData;
 
 
 void init_spi() {
-    /// init SPI bus for BMP + ADXL + LSM
-    SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
-    BMP.begin(BMP581_CS, &SPI);
-    ADXL.begin();
-    LSM.begin_SPI(LSM6DSO32_CS, &SPI);
-
-    /// init SPI bus for SD + Lora
-    SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
-    gHasSD = SD.begin(SD_CS, SPI2, 20000000); /// 20MHz SD SPI bus
-    if (!gHasSD) {
-        Serial.println("SD init fail");
+    /// Initialize SPI bus for BMP + ADXL + LSM
+    if (SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1)){
+        gOutputData.spi1_ok = true;
     } else {
-        Serial.println("SD init OK");
+        gOutputData.spi1_ok = false;
     }
-    
+    /// Initialize BMP
+    if (BMP.begin(BMP581_CS, &SPI)){
+        gOutputData.bmp_ok = true;
+    } else {
+        gOutputData.bmp_ok = false;
+    } 
+    /// Initialize ADXL
+    if (ADXL.begin()){
+        gOutputData.adxl_ok = true;
+    } else {
+        gOutputData.adxl_ok = false;
+    }
+    /// Initialize LSM
+    if (LSM.begin_SPI(LSM6DSO32_CS, &SPI)){
+        gOutputData.lsm_ok = true;
+    } else {
+        gOutputData.lsm_ok = false;
+    }
+
+    /// Initialize SPI bus for SD + Lora
+    if (SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
+        gOutputData.spi2_ok = true;
+    } else {
+        gOutputData.spi2_ok = false;
+    }
+    /// Initialize SD
+    if (SD.begin(SD_CS, SPI2, SD_RATE)) { 
+        gOutputData.sd_ok = true;
+    } else {
+        gOutputData.sd_ok = false;
+    }
+    /// Set pins & Initialize Lora to defined frequency
     LoRa.setSPI(SPI2);
     LoRa.setPins(LORA_CS, LORA_RST, LORA_G0_INT);
-    if (!LoRa.begin(LORA_FREQ)) {   
-        Serial.println("LoRa init failed!");
+    if (LoRa.begin(LORA_FREQ)) {
+        gOutputData.lora_ok = true;
     } else {
-        Serial.println("LoRa init OK");
+        gOutputData.lora_ok = false;
     }
-    
 }
 
 void init_I2C() {
-    ///init I2C bus for BNO + GPS
-    Wire.begin(I2C_SDA, I2C_SCL);
-    BNO.begin();
+    /// Initialize I2C bus for BNO + GPS
+    if (Wire.begin(I2C_SDA, I2C_SCL)) {
+        gOutputData.i2c_ok = true;
+    } else {
+        gOutputData.i2c_ok = false;
+    }
+    /// Initialize BNO
+    if (BNO.begin()) {
+        gOutputData.bno_ok = true;
+    } else {
+        gOutputData.bno_ok = false;
+    }
 }
 
 void Core0_task(void *pvParameter);
@@ -168,24 +209,6 @@ void Core1_task2(void *pvParameter);
 
 extern "C" void app_main()
 {
-    /// init Arduino Framework from ESP HAL
-    initArduino();
-
-    /// init SPI buses
-    init_spi();
-
-    /// init I^2C bus
-    init_I2C();
-
-    /// dump GPIO config
-    gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
-
-    /// Create New Mutex
-    gSpiMutex_BAL = xSemaphoreCreateMutex();
-    gSpiMutex_SL  = xSemaphoreCreateMutex();
-    gI2cMutex     = xSemaphoreCreateMutex();
-    
-
     /// Pointer holder heap allocation
     TaskParams_t *pParams    = (TaskParams_t*)malloc(sizeof(TaskParams_t));
     /// BMP+GPS object address
@@ -203,6 +226,24 @@ extern "C" void app_main()
     pParams->pAccelerometer  = &gAccelerometer;
     pParams->pQuaternion     = &gQuaternion;
 
+    /// init Arduino Framework from ESP HAL
+    initArduino();
+
+    /// init SPI buses
+    init_spi();
+
+    /// init I^2C bus
+    init_I2C();
+
+    /// dump GPIO config
+    gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+
+    /// Create New Mutex
+    gSpiMutex_BAL = xSemaphoreCreateMutex();
+    gSpiMutex_SL  = xSemaphoreCreateMutex();
+    gI2cMutex     = xSemaphoreCreateMutex();
+
+    /// Tasks to cores
     xTaskCreatePinnedToCore(Core0_task, "Core0_task", 5000, (void*)pParams,
                             1, NULL, 0);
 
@@ -297,16 +338,16 @@ void Core0_task(void *pvParameter) {
             pOutputData->lsm_temp   = pEventLSM_temp->temperature-2.5;
 
             #ifdef DEBUG
-            printf("LSM Up Time: %lu [ms]\n", (unsigned long)upTime);
-            printf("LSM Accel X: %f [m/s^2]\n", pEventLSM_accel->acceleration.x);
-            printf("LSM Accel Y: %f [m/s^2]\n", pEventLSM_accel->acceleration.y);
-            printf("LSM Accel Z: %f [m/s^2]\n", pEventLSM_accel->acceleration.z);
+                printf("LSM Up Time: %lu [ms]\n", (unsigned long)upTime);
+                printf("LSM Accel X: %f [m/s^2]\n", pEventLSM_accel->acceleration.x);
+                printf("LSM Accel Y: %f [m/s^2]\n", pEventLSM_accel->acceleration.y);
+                printf("LSM Accel Z: %f [m/s^2]\n", pEventLSM_accel->acceleration.z);
 
-            printf("LSM Gyro X: %f\n", pEventLSM_gyro->gyro.x);
-            printf("LSM Gyro Y: %f\n", pEventLSM_gyro->gyro.y);
-            printf("LSM Gyro Z: %f\n", pEventLSM_gyro->gyro.z);
+                printf("LSM Gyro X: %f\n", pEventLSM_gyro->gyro.x);
+                printf("LSM Gyro Y: %f\n", pEventLSM_gyro->gyro.y);
+                printf("LSM Gyro Z: %f\n", pEventLSM_gyro->gyro.z);
 
-            printf("LSM Temp: %f\n\n", pEventLSM_temp->temperature);
+                printf("LSM Temp: %f\n\n", pEventLSM_temp->temperature);
             #endif
         }
       } else {
@@ -334,8 +375,8 @@ void Core1_task1(void *pvParameter) {
     imu::Quaternion *pQuaternion     = pTask->pQuaternion;
 
     while (1) {
-
         ///BNO function 
+        // Leaving printout for delay optimization later
         bool orient_ok = false;
         bool gyro_ok   = false;
         bool mag_ok    = false;
@@ -379,16 +420,7 @@ void Core1_task1(void *pvParameter) {
                 pOutputData->bno_acc_y  = pEventBNO_accel->acceleration.y;
                 pOutputData->bno_acc_z  = pEventBNO_accel->acceleration.z - 9.35;
 
-            }
-        } else {
-
-            #ifdef DEBUG
-                printf("No token BNO!!!\n");
-            #endif
-
-        }
-
-        #ifdef DEBUG
+                #ifdef DEBUG
                         printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
 
                         printf("BNO Quaternion:\n");
@@ -418,9 +450,18 @@ void Core1_task1(void *pvParameter) {
                         printf("BNO Accel Z: %f\n\n", pOutputData->bno_acc_z);
                 #endif
 
+            }
+        } else {
+
+            #ifdef DEBUG
+                printf("No token BNO!!!\n");
+            #endif
+
+        }
 
 
-        /// GPS function
+        /// GPS function 
+        // Leaving print out to help optmize delay and timing later
         int bytes_processed = 0;
         bool     got_fix     = false;
         uint32_t cycle_start = millis();
@@ -474,7 +515,17 @@ void Core1_task1(void *pvParameter) {
                             pOutputData->gps_long = GPS.longitude;
                             pOutputData->gps_alt  = GPS.altitude;
 
+                            #ifdef DEBUG
+                                printf("GPS: fix OK\n");
+                                printf("GPS Uptime: %lu [ticks]\n", (unsigned long)upTime);
+                                printf("Satellites: %d\n", GPS.satellites);
+                                printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
+                                printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
+                                printf("Altitude:  %f [m]\n\n", GPS.altitude);
+                            #endif
+
                             got_fix = true;
+                            pOutputData->gpsFix_ok = true;
                             break;  // break while(GPS.available())
                         }
                     }
@@ -495,23 +546,13 @@ void Core1_task1(void *pvParameter) {
             }
         }
 
-        #ifdef DEBUG
-            if (!got_fix) {
-                printf("GPS: no valid fix this cycle\n");
-            }
-        #endif
-
-
-        #ifdef DEBUG
-            printf("GPS: fix OK\n");
-            printf("GPS Uptime: %lu [ticks]\n", (unsigned long)upTime);
-            printf("Satellites: %d\n", GPS.satellites);
-            printf("Latitude:  %f %c\n", GPS.latitude,  GPS.lat);
-            printf("Longitude: %f %c\n", GPS.longitude, GPS.lon);
-            printf("Altitude:  %f [m]\n\n", GPS.altitude);
-        #endif
         
-
+        if (!got_fix) {
+            #ifdef DEBUG
+            printf("GPS: no valid fix this cycle\n");
+            #endif
+            pOutputData->gpsFix_ok = false;
+        }
         vTaskDelay(pdMS_TO_TICKS(500)); // Stable, Unoptimized
     }
 }
