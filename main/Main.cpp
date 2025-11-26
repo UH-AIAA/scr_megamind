@@ -56,12 +56,12 @@
 /// Debug control 
 #define DEBUG
 
-enum FlightState {
-    STATE_IDLE = 0,
-    STATE_ASCENT = 1,
-    STATE_DESCENT = 2,
-    STATE_LANDED = 3,
-};
+// enum FlightState {
+//     STATE_IDLE = 0,
+//     STATE_ASCENT = 1,
+//     STATE_DESCENT = 2,
+//     STATE_LANDED = 3,
+// };
 
 /// @brief Calibrated Data struct
 ///        SPI & I2C buses, sensors data and GPS fix
@@ -90,7 +90,8 @@ typedef struct{
     bool sd_ok = false;
     bool lora_ok = false;
 
-    // FlightState flightState;
+    uint8_t flightState = 0;
+
 } OutputData_t; 
 
 /// @brief Pointers to hold global objects address
@@ -138,14 +139,34 @@ SemaphoreHandle_t gSpiMutex_BAL;
 SemaphoreHandle_t gSpiMutex_SL; 
 SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
-static uint32_t loraCounter = 0;
+static uint16_t loraCounter = 0;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  
 
 /// @brief  State Machine constants
 const int ACCEL_LAUNCH_G = 2; 
-const float GRAVITY_FORCE = 9.80665; 
-const float idle_max_adxl_accel = 0.8;
-const float launch_threshold = idle_max_adxl_accel * 2;
+const float GRAVITY_FORCE = 9.80665;
+/// @brief Ascent threshold
+static float ascent_threshold = GRAVITY_FORCE * ACCEL_LAUNCH_G;
+
+/// @brief ADXL data bias (mean) for calibration
+const int adxl_samples_max = 20; 
+static float adxl_accel_x_mean = 0.0;
+static float adxl_accel_y_mean = 0.0;
+static float adxl_accel_z_mean = 0.0;
+static uint8_t adxl_bias_samples_count = 0; /// Counter for ADXL bias data sample
+static bool adxl_bias_mean_founded = false; /// Flag to check if ADXL bias mean is founded
+static float adxl_accel_magnitude = 0.0;    /// Magnitude of ADXL data after calibrated
+
+/// @brief LSM data bias (mean) for calibration
+const int lsm_samples_max = 20; 
+static float lsm_accel_x_mean = 0.0;
+static float lsm_accel_y_mean = 0.0;
+static float lsm_accel_z_mean = 0.0;
+static uint8_t lsm_bias_samples_count = 0; /// Counter for LSM bias data sample
+static bool lsm_bias_mean_founded = false; /// Flag to check if LSM bias mean is founded
+static float lsm_accel_magnitude = 0.0;    /// Magnitude of LSM data after calibrated
+
+
 
 /// Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -162,32 +183,31 @@ void init_spi() {
     /// Initialize SPI bus for BMP + ADXL + LSM
     gOutputData.spi1_ok = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
     /// Initialize BMP
-    gOutputData.bmp_ok = BMP.begin(BMP581_CS, &SPI);
+    BMP.begin(BMP581_CS, &SPI);
     /// Initialize ADXL
-    gOutputData.adxl_ok = ADXL.begin();
+    ADXL.begin();
     /// Initialize LSM
-    gOutputData.lsm_ok = LSM.begin_SPI(LSM6DSO32_CS, &SPI);
+    LSM.begin_SPI(LSM6DSO32_CS, &SPI);
 
     /// Initialize SPI bus for SD + Lora
     gOutputData.spi2_ok = SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
     /// Initialize SD
     gHasSD = SD.begin(SD_CS, SPI2, SD_RATE);
-    gOutputData.sd_ok = gHasSD;
     /// Set pins & Initialize Lora to defined frequency
     LoRa.setSPI(SPI2);
     LoRa.setPins(LORA_CS, LORA_RST, LORA_G0_INT);
-    gOutputData.lora_ok = LoRa.begin(LORA_FREQ);
+    LoRa.begin(LORA_FREQ);
 }
 
 void init_I2C() {
     /// Initialize I2C bus for BNO + GPS
     gOutputData.i2c_ok = Wire.begin(I2C_SDA, I2C_SCL);
     /// Initialize BNO
-    gOutputData.bno_ok = BNO.begin();
+    BNO.begin();
 }
 
 void Core0_task(void *pvParameter);
-// void Core0_stateMachine(void *pvParameter);
+void Core0_stateMachine(void *pvParameter);
 void Core1_task1(void *pvParameter);
 void Core1_task2(void *pvParameter);
 
@@ -229,11 +249,12 @@ extern "C" void app_main()
 
     /// Tasks to cores
     xTaskCreatePinnedToCore(Core0_task, "Core0_task", 5000, (void*)pParams,
-                            1, NULL, 0);
+                            2, NULL, 0);
+    xTaskCreatePinnedToCore(Core0_stateMachine, "Core0_stateMachine", 5000, (void*)pParams,
+                            1, NULL, 0);          
 
     xTaskCreatePinnedToCore(Core1_task1, "Core1_task1", 5000, (void*)pParams,
                             1, NULL, 1);
-
     xTaskCreatePinnedToCore(Core1_task2, "Core1_task2", 5000, (void*)pParams,
                             2, NULL, 1);
 }
@@ -255,15 +276,15 @@ void Core0_task(void *pvParameter) {
     {
       /// BMP functions + calibrations
       if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
-          upTime = xTaskGetTickCount();
-          bool bmp_ok = BMP.performReading();
-          xSemaphoreGive(gSpiMutex_BAL);
+        upTime = xTaskGetTickCount();
+        gOutputData.bmp_ok = BMP.performReading();
+        xSemaphoreGive(gSpiMutex_BAL);
 
-        if (bmp_ok) {
+        if (gOutputData.bmp_ok) {
             // calibrate here & save to data struct 
-            pOutputData->bmp_temp  = BMP.temperature-0.8;
+            pOutputData->bmp_temp  = BMP.temperature;
             pOutputData->bmp_press = BMP.pressure;
-            pOutputData->bmp_alt   = BMP.readAltitude(1013.25f) + 25.85;
+            pOutputData->bmp_alt   = BMP.readAltitude(1013.25f);
 
           #ifdef DEBUG
               printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
@@ -282,20 +303,43 @@ void Core0_task(void *pvParameter) {
       /// ADXL function + calibrations
       if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
-        bool adxl_ok = ADXL.getEvent(pEventADXL);
+        gOutputData.adxl_ok = ADXL.getEvent(pEventADXL);
         xSemaphoreGive(gSpiMutex_BAL);
 
-        if (adxl_ok) {
+        if (gOutputData.adxl_ok) {
             // calibrate here & save to data struct 
-            pOutputData->adxl_acc_x = pEventADXL->acceleration.x - 9.11;
-            pOutputData->adxl_acc_y = pEventADXL->acceleration.x - 1.44;
-            pOutputData->adxl_acc_z = pEventADXL->acceleration.x - 3.344;
+            pOutputData->adxl_acc_x = pEventADXL->acceleration.x;
+            pOutputData->adxl_acc_y = pEventADXL->acceleration.y;
+            pOutputData->adxl_acc_z = pEventADXL->acceleration.z;
+
+            if (!adxl_bias_mean_founded){
+                if (adxl_bias_samples_count < adxl_samples_max){
+                    adxl_accel_x_mean += pOutputData->adxl_acc_x;
+                    adxl_accel_y_mean += pOutputData->adxl_acc_y;
+                    adxl_accel_z_mean += pOutputData->adxl_acc_z;
+                    adxl_bias_samples_count++;
+                } else {
+                    adxl_accel_x_mean = adxl_accel_x_mean / adxl_samples_max;
+                    adxl_accel_y_mean = adxl_accel_y_mean / adxl_samples_max;
+                    adxl_accel_z_mean = adxl_accel_z_mean / adxl_samples_max;
+                    adxl_bias_mean_founded = true;
+                }
+            } else {
+                pOutputData->adxl_acc_x = pOutputData->adxl_acc_x - adxl_accel_x_mean;
+                pOutputData->adxl_acc_y = pOutputData->adxl_acc_y - adxl_accel_y_mean;
+                pOutputData->adxl_acc_z = pOutputData->adxl_acc_z - adxl_accel_z_mean;
+                adxl_accel_magnitude = sqrtf(pOutputData->lsm_acc_x*pOutputData->lsm_acc_x + 
+                                        pOutputData->adxl_acc_y*pOutputData->adxl_acc_y + 
+                                        pOutputData->adxl_acc_z*pOutputData->adxl_acc_z);
+            }
 
             #ifdef DEBUG
                     printf("ADXL Up Time: %lu [ms]\n", (unsigned long)upTime);
                     printf("ADXL accel X: %f [m/s^2]\n", pOutputData->adxl_acc_x);
                     printf("ADXL accel Y: %f [m/s^2]\n", pOutputData->adxl_acc_y);
                     printf("ADXL accel Z: %f [m/s^2]\n\n", pOutputData->adxl_acc_z);
+
+                    printf("ADXL ACCELERATION MAGNITUDE: %f [m/s^2]\n\n", adxl_accel_magnitude);
             #endif
         }
       } else {
@@ -308,30 +352,61 @@ void Core0_task(void *pvParameter) {
       /// LSM function + calibrations
       if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
         upTime = xTaskGetTickCount();
-        bool lsm_ok = LSM.getEvent(pEventLSM_accel, pEventLSM_gyro, pEventLSM_temp);
+        gOutputData.lsm_ok = LSM.getEvent(pEventLSM_accel, pEventLSM_gyro, pEventLSM_temp);
         xSemaphoreGive(gSpiMutex_BAL);
 
-        if (lsm_ok) {
+        if (gOutputData.lsm_ok) {
             // calibrate here & save to data struct 
-            pOutputData->lsm_acc_x  = pEventLSM_accel->acceleration.x + 0.003;
-            pOutputData->lsm_acc_y  = pEventLSM_accel->acceleration.y + 0.003;
-            pOutputData->lsm_acc_z  = pEventLSM_accel->acceleration.z - 9.631;
+            pOutputData->lsm_acc_x  = pEventLSM_accel->acceleration.x;
+            pOutputData->lsm_acc_y  = pEventLSM_accel->acceleration.y;
+            pOutputData->lsm_acc_z  = pEventLSM_accel->acceleration.z;
             pOutputData->lsm_gyro_x = pEventLSM_gyro->gyro.x + 0.003;
             pOutputData->lsm_gyro_y = pEventLSM_gyro->gyro.y+0.115;
             pOutputData->lsm_gyro_z = pEventLSM_gyro->gyro.z;
             pOutputData->lsm_temp   = pEventLSM_temp->temperature-2.5;
+            
+
+            if (!lsm_bias_mean_founded){
+                if (lsm_bias_samples_count < lsm_samples_max){
+                    lsm_accel_x_mean += pOutputData->lsm_acc_x;
+                    lsm_accel_y_mean += pOutputData->lsm_acc_y;
+                    lsm_accel_z_mean += pOutputData->lsm_acc_z;
+                    lsm_bias_samples_count++;
+                } else {
+                    lsm_accel_x_mean = lsm_accel_x_mean / lsm_samples_max;
+                    lsm_accel_y_mean = lsm_accel_y_mean / lsm_samples_max;
+                    lsm_accel_z_mean = lsm_accel_z_mean / lsm_samples_max;
+                    lsm_bias_mean_founded = true;
+                }
+            } else {
+                pOutputData->lsm_acc_x = pOutputData->lsm_acc_x - lsm_accel_x_mean;
+                pOutputData->lsm_acc_y = pOutputData->lsm_acc_y - lsm_accel_y_mean;
+                pOutputData->lsm_acc_z = pOutputData->lsm_acc_z - lsm_accel_z_mean;
+                lsm_accel_magnitude = sqrtf(pOutputData->lsm_acc_x*pOutputData->lsm_acc_x + 
+                                        pOutputData->lsm_acc_y*pOutputData->lsm_acc_y + 
+                                        pOutputData->lsm_acc_z*pOutputData->lsm_acc_z);
+            }
+
+            
 
             #ifdef DEBUG
                 printf("LSM Up Time: %lu [ms]\n", (unsigned long)upTime);
-                printf("LSM Accel X: %f [m/s^2]\n", pEventLSM_accel->acceleration.x);
-                printf("LSM Accel Y: %f [m/s^2]\n", pEventLSM_accel->acceleration.y);
-                printf("LSM Accel Z: %f [m/s^2]\n", pEventLSM_accel->acceleration.z);
+                printf("LSM Accel X: %f [m/s^2]\n", pOutputData->lsm_acc_x);
+                printf("LSM Accel Y: %f [m/s^2]\n", pOutputData->lsm_acc_y);
+                printf("LSM Accel Z: %f [m/s^2]\n", pOutputData->lsm_acc_z);
 
-                printf("LSM Gyro X: %f\n", pEventLSM_gyro->gyro.x);
-                printf("LSM Gyro Y: %f\n", pEventLSM_gyro->gyro.y);
-                printf("LSM Gyro Z: %f\n", pEventLSM_gyro->gyro.z);
+                printf("LSM Gyro X: %f\n", pOutputData->lsm_gyro_x);
+                printf("LSM Gyro Y: %f\n", pOutputData->lsm_gyro_y);
+                printf("LSM Gyro Z: %f\n", pOutputData->lsm_gyro_z);
 
-                printf("LSM Temp: %f\n\n", pEventLSM_temp->temperature);
+                printf("LSM Temp: %f\n\n", pOutputData->lsm_temp);
+
+                printf("LSM accel x calibrated: %f\n", lsm_accel_x_mean);
+                printf("LSM accel y calibrated: %f\n", lsm_accel_y_mean);
+                printf("LSM accel z calibrated: %f\n\n", lsm_accel_z_mean);
+
+                printf("LSM ACCELERATION MAGNITUDE: %f\n\n", lsm_accel_magnitude);
+                printf("LSM ASCENT THRESHOLD: %f\n\n", ascent_threshold);
             #endif
         }
       } else {
@@ -346,29 +421,41 @@ void Core0_task(void *pvParameter) {
 }
 
 void Core0_stateMachine(void *pvParameter){
-    // Using pointers here to help refactor code faster later
-    /// pointers holder 
-    TaskParams_t    *pTask           = (TaskParams_t*)pvParameter;
-    /// BMP pointer
-    OutputData_t    *pOutputData     = pTask->pOutputData;
-    ///ADXL pointer
-    sensors_event_t *pEventADXL      = pTask->pEventADXL;
-    ///LSM pointer
-    sensors_event_t *pEventLSM_accel = pTask->pEventLSM_accel;
-    sensors_event_t *pEventLSM_gyro  = pTask->pEventLSM_gyro;
-    sensors_event_t *pEventLSM_temp  = pTask->pEventLSM_temp;
+    while (1) {
+        switch (gOutputData.flightState){
+        case 0: /// IDLE 
+            #ifdef DEBUG
+                printf("STATE IDLE--------------------------\n");
+            #endif
+            if (gOutputData.adxl_ok) { // If ADXL ok
+                if (adxl_accel_magnitude > ascent_threshold) {
+                    gOutputData.flightState = 1;
+                }
+            } else if (gOutputData.lsm_ok){ // If ADXL fails and LSM ok
+                if (lsm_accel_magnitude > ascent_threshold) {
+                    gOutputData.flightState = 1;
+                }
+            }
+            break;
+        case 1: /// ASCEND
+            #ifdef DEBUG
+                printf("STATE ASCENDING---------------------\n");
 
-    // switch (pOutputData->flightState){
-    //     case STATE_IDLE: 
-            
-    //     case STATE_ASCENT:
-
-    //     case STATE_ASCENT:
-
-    //     case STATE_LANDED:
-    // }
-
-
+            #endif
+            break;
+        case 2: /// DESCEND
+            #ifdef DEBUG
+                printf("STATE DESCENDING--------------------------\n");
+            #endif
+            break;
+        case 3: /// LANDED
+            #ifdef DEBUG
+                printf("STATE LANDED--------------------------\n");
+            #endif
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 
 }
 
@@ -407,8 +494,8 @@ void Core1_task1(void *pvParameter) {
             *pQuaternion = BNO.getQuat();
             xSemaphoreGive(gI2cMutex);
 
-            bool bno_ok = orient_ok && gyro_ok && mag_ok && accel_ok;
-            if (bno_ok) {
+            gOutputData.bno_ok = orient_ok && gyro_ok && mag_ok && accel_ok;
+            if (gOutputData.bno_ok) {
                 /// calibrate here & save to data struct 
                 pOutputData->bno_quar_w = pQuaternion->w();
                 pOutputData->bno_quar_x = pQuaternion->x();
@@ -429,36 +516,36 @@ void Core1_task1(void *pvParameter) {
 
                 pOutputData->bno_acc_x  = pEventBNO_accel->acceleration.x;
                 pOutputData->bno_acc_y  = pEventBNO_accel->acceleration.y;
-                pOutputData->bno_acc_z  = pEventBNO_accel->acceleration.z - 9.35;
+                pOutputData->bno_acc_z  = pEventBNO_accel->acceleration.z;
 
                 #ifdef DEBUG
-                        printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
+                    printf("BNO Uptime: %lu [ms]\n", (unsigned long)upTime);
 
-                        printf("BNO Quaternion:\n");
-                        printf("BNO quater W: %f\n",   pOutputData->bno_quar_w);
-                        printf("BNO quater X: %f\n",   pOutputData->bno_quar_x);
-                        printf("BNO quater Y: %f\n",   pOutputData->bno_quar_y);
-                        printf("BNO quater Z: %f\n\n", pOutputData->bno_quar_z);
+                    printf("BNO Quaternion:\n");
+                    printf("BNO quater W: %f\n",   pOutputData->bno_quar_w);
+                    printf("BNO quater X: %f\n",   pOutputData->bno_quar_x);
+                    printf("BNO quater Y: %f\n",   pOutputData->bno_quar_y);
+                    printf("BNO quater Z: %f\n\n", pOutputData->bno_quar_z);
 
-                        printf("BNO Orientation:\n");
-                        printf("BNO Ori X: %f\n",   pOutputData->bno_ori_x);
-                        printf("BNO Ori Y: %f\n",   pOutputData->bno_ori_y);
-                        printf("BNO Ori Z: %f\n\n", pOutputData->bno_ori_z);
+                    printf("BNO Orientation:\n");
+                    printf("BNO Ori X: %f\n",   pOutputData->bno_ori_x);
+                    printf("BNO Ori Y: %f\n",   pOutputData->bno_ori_y);
+                    printf("BNO Ori Z: %f\n\n", pOutputData->bno_ori_z);
 
-                        printf("BNO Gyro:\n");
-                        printf("BNO Gyro X: %f\n",   pOutputData->bno_gyro_x);
-                        printf("BNO Gyro Y: %f\n",   pOutputData->bno_gyro_y);
-                        printf("BNO Gyro Z: %f\n\n", pOutputData->bno_gyro_z);
+                    printf("BNO Gyro:\n");
+                    printf("BNO Gyro X: %f\n",   pOutputData->bno_gyro_x);
+                    printf("BNO Gyro Y: %f\n",   pOutputData->bno_gyro_y);
+                    printf("BNO Gyro Z: %f\n\n", pOutputData->bno_gyro_z);
 
-                        printf("BNO Magnometer:\n");
-                        printf("BNO Mag X: %f\n", pOutputData->bno_mag_x);
-                        printf("BNO Mag Y: %f\n", pOutputData->bno_mag_y);
-                        printf("BNO Mag Z: %f\n\n", pOutputData->bno_mag_z);
+                    printf("BNO Magnometer:\n");
+                    printf("BNO Mag X: %f\n", pOutputData->bno_mag_x);
+                    printf("BNO Mag Y: %f\n", pOutputData->bno_mag_y);
+                    printf("BNO Mag Z: %f\n\n", pOutputData->bno_mag_z);
 
-                        printf("BNO Accelerometer:\n");
-                        printf("BNO Accel X: %f\n", pOutputData->bno_acc_x);
-                        printf("BNO Accel Y: %f\n", pOutputData->bno_acc_y);
-                        printf("BNO Accel Z: %f\n\n", pOutputData->bno_acc_z);
+                    printf("BNO Accelerometer:\n");
+                    printf("BNO Accel X: %f\n", pOutputData->bno_acc_x);
+                    printf("BNO Accel Y: %f\n", pOutputData->bno_acc_y);
+                    printf("BNO Accel Z: %f\n\n", pOutputData->bno_acc_z);
                 #endif
 
             }
@@ -536,7 +623,7 @@ void Core1_task1(void *pvParameter) {
                             #endif
 
                             got_fix = true;
-                            pOutputData->gpsFix_ok = true;
+                            gOutputData.gpsFix_ok = true;
                             break;  // break while(GPS.available())
                         }
                     }
@@ -562,7 +649,7 @@ void Core1_task1(void *pvParameter) {
             #ifdef DEBUG
             printf("GPS: no valid fix this cycle\n");
             #endif
-            pOutputData->gpsFix_ok = false;
+            gOutputData.gpsFix_ok = false;
         }
         vTaskDelay(pdMS_TO_TICKS(500)); // Stable, Unoptimized
     }
@@ -580,6 +667,7 @@ void Core1_task2(void *pvParameter) {
         if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
             if (gHasSD){
                 sdData = SD.open("/SD_data.txt", FILE_APPEND);
+                gOutputData.sd_ok = sdData;
                 if (sdData) {
                     if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
                         sdData.println(
@@ -593,7 +681,8 @@ void Core1_task2(void *pvParameter) {
                                     "bno_gyro_x,bno_gyro_y,bno_gyro_z,"
                                     "bno_mag_x,bno_mag_y,bno_mag_z,"
                                     "bno_ori_x,bno_ori_y,bno_ori_z,"
-                                    "gps_sats,gps_lat,gps_long,gps_alt"
+                                    "gps_sats,gps_lat,gps_long,gps_alt,"
+                                    "Flight State"
                                     );
                     }
 
@@ -646,7 +735,8 @@ void Core1_task2(void *pvParameter) {
                     sdData.print(gOutputData.gps_sats);   sdData.print(',');
                     sdData.print(gOutputData.gps_lat);    sdData.print(',');
                     sdData.print(gOutputData.gps_long);   sdData.print(',');
-                    sdData.print(gOutputData.gps_alt);
+                    sdData.print(gOutputData.gps_alt);    sdData.print(',');
+                    sdData.print(gOutputData.flightState);
 
                     sdData.println(); 
 
@@ -690,6 +780,7 @@ void Core1_task2(void *pvParameter) {
             #endif
             
             LoRa.beginPacket();
+            gOutputData.lora_ok = true;
             /// Packet Counter
             LoRa.write((uint8_t*)&loraCounter, sizeof(loraCounter));
             /// Send telemetry payload
