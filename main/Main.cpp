@@ -160,66 +160,30 @@ File                sdData;
 
 void init_spi() {
     /// Initialize SPI bus for BMP + ADXL + LSM
-    if (SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1)){
-        gOutputData.spi1_ok = true;
-    } else {
-        gOutputData.spi1_ok = false;
-    }
+    gOutputData.spi1_ok = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
     /// Initialize BMP
-    if (BMP.begin(BMP581_CS, &SPI)){
-        gOutputData.bmp_ok = true;
-    } else {
-        gOutputData.bmp_ok = false;
-    } 
+    gOutputData.bmp_ok = BMP.begin(BMP581_CS, &SPI);
     /// Initialize ADXL
-    if (ADXL.begin()){
-        gOutputData.adxl_ok = true;
-    } else {
-        gOutputData.adxl_ok = false;
-    }
+    gOutputData.adxl_ok = ADXL.begin();
     /// Initialize LSM
-    if (LSM.begin_SPI(LSM6DSO32_CS, &SPI)){
-        gOutputData.lsm_ok = true;
-    } else {
-        gOutputData.lsm_ok = false;
-    }
+    gOutputData.lsm_ok = LSM.begin_SPI(LSM6DSO32_CS, &SPI);
 
     /// Initialize SPI bus for SD + Lora
-    if (SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
-        gOutputData.spi2_ok = true;
-    } else {
-        gOutputData.spi2_ok = false;
-    }
+    gOutputData.spi2_ok = SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
     /// Initialize SD
     gHasSD = SD.begin(SD_CS, SPI2, SD_RATE);
-    if (gHasSD) { 
-        gOutputData.sd_ok = true;
-    } else {
-        gOutputData.sd_ok = false;
-    }
+    gOutputData.sd_ok = gHasSD;
     /// Set pins & Initialize Lora to defined frequency
     LoRa.setSPI(SPI2);
     LoRa.setPins(LORA_CS, LORA_RST, LORA_G0_INT);
-    if (LoRa.begin(LORA_FREQ)) {
-        gOutputData.lora_ok = true;
-    } else {
-        gOutputData.lora_ok = false;
-    }
+    gOutputData.lora_ok = oRa.begin(LORA_FREQ);
 }
 
 void init_I2C() {
     /// Initialize I2C bus for BNO + GPS
-    if (Wire.begin(I2C_SDA, I2C_SCL)) {
-        gOutputData.i2c_ok = true;
-    } else {
-        gOutputData.i2c_ok = false;
-    }
+    gOutputData.i2c_ok = Wire.begin(I2C_SDA, I2C_SCL);
     /// Initialize BNO
-    if (BNO.begin()) {
-        gOutputData.bno_ok = true;
-    } else {
-        gOutputData.bno_ok = false;
-    }
+    gOutputData.bno_ok = BNO.begin();
 }
 
 void Core0_task(void *pvParameter);
