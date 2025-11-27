@@ -56,13 +56,6 @@
 /// Debug control 
 #define DEBUG
 
-// enum FlightState {
-//     STATE_IDLE = 0,
-//     STATE_ASCENT = 1,
-//     STATE_DESCENT = 2,
-//     STATE_LANDED = 3,
-// };
-
 /// @brief Calibrated Data struct
 ///        SPI & I2C buses, sensors data and GPS fix
 typedef struct{
@@ -145,6 +138,7 @@ const int MAX_GPS_BYTES_PER_LOOP = 64;
 /// @brief  State Machine constants
 const int ACCEL_LAUNCH_G = 2; 
 const float GRAVITY_FORCE = 9.80665;
+
 /// @brief Ascent threshold
 static float ascent_threshold = GRAVITY_FORCE * ACCEL_LAUNCH_G;
 
@@ -166,6 +160,11 @@ static uint8_t lsm_bias_samples_count = 0; /// Counter for LSM bias data sample
 static bool lsm_bias_mean_founded = false; /// Flag to check if LSM bias mean is founded
 static float lsm_accel_magnitude = 0.0;    /// Magnitude of LSM data after calibrated
 
+/// @brief BMP daata bias (mean) for calibration
+const int bmp_samples_max = 20;
+static float bmp_altitude_mean = 0.0;
+static uint8_t bmp_bias_samples_count = 0; /// Counter for BMP bias data sample
+static bool bmp_bias_mean_founded = false; /// Flag to check if LSM bias mean is founded
 
 
 /// Sensors Object Instantiation
@@ -286,6 +285,18 @@ void Core0_task(void *pvParameter) {
             pOutputData->bmp_press = BMP.pressure;
             pOutputData->bmp_alt   = BMP.readAltitude(1013.25f);
 
+            if (!bmp_bias_mean_founded){
+                if (bmp_bias_samples_count < bmp_samples_max){
+                    bmp_altitude_mean += pOutputData->bmp_alt;
+                    bmp_bias_samples_count++;
+                } else {
+                    bmp_altitude_mean = bmp_altitude_mean / bmp_samples_max;
+                    bmp_bias_mean_founded = true;
+                }
+            } else {
+                pOutputData->bmp_alt = fabs(pOutputData->bmp_alt - bmp_altitude_mean);
+            }
+
           #ifdef DEBUG
               printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
               printf("BMP Temp: %f\n", pOutputData->bmp_temp);
@@ -325,9 +336,9 @@ void Core0_task(void *pvParameter) {
                     adxl_bias_mean_founded = true;
                 }
             } else {
-                pOutputData->adxl_acc_x = pOutputData->adxl_acc_x - adxl_accel_x_mean;
-                pOutputData->adxl_acc_y = pOutputData->adxl_acc_y - adxl_accel_y_mean;
-                pOutputData->adxl_acc_z = pOutputData->adxl_acc_z - adxl_accel_z_mean;
+                pOutputData->adxl_acc_x = fabs(pOutputData->adxl_acc_x - adxl_accel_x_mean);
+                pOutputData->adxl_acc_y = fabs(pOutputData->adxl_acc_y - adxl_accel_y_mean);
+                pOutputData->adxl_acc_z = fabs(pOutputData->adxl_acc_z - adxl_accel_z_mean);
                 adxl_accel_magnitude = sqrtf(pOutputData->lsm_acc_x*pOutputData->lsm_acc_x + 
                                         pOutputData->adxl_acc_y*pOutputData->adxl_acc_y + 
                                         pOutputData->adxl_acc_z*pOutputData->adxl_acc_z);
@@ -379,9 +390,9 @@ void Core0_task(void *pvParameter) {
                     lsm_bias_mean_founded = true;
                 }
             } else {
-                pOutputData->lsm_acc_x = pOutputData->lsm_acc_x - lsm_accel_x_mean;
-                pOutputData->lsm_acc_y = pOutputData->lsm_acc_y - lsm_accel_y_mean;
-                pOutputData->lsm_acc_z = pOutputData->lsm_acc_z - lsm_accel_z_mean;
+                pOutputData->lsm_acc_x = fabs(pOutputData->lsm_acc_x - lsm_accel_x_mean);
+                pOutputData->lsm_acc_y = fabs(pOutputData->lsm_acc_y - lsm_accel_y_mean);
+                pOutputData->lsm_acc_z = fabs(pOutputData->lsm_acc_z - lsm_accel_z_mean);
                 lsm_accel_magnitude = sqrtf(pOutputData->lsm_acc_x*pOutputData->lsm_acc_x + 
                                         pOutputData->lsm_acc_y*pOutputData->lsm_acc_y + 
                                         pOutputData->lsm_acc_z*pOutputData->lsm_acc_z);
