@@ -89,6 +89,8 @@ SemaphoreHandle_t gSpiMutex_BAL;
 SemaphoreHandle_t gSpiMutex_SL; 
 SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
+
+// TODO: [NS] does this need to be static?
 static uint16_t loraCounter = 0;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  
 
@@ -99,6 +101,7 @@ const int MAX_GPS_BYTES_PER_LOOP = 64;
     REQ_COUNT_STATE_CHANGE:       Amount of check before state is allowed to change
     ASCEND_THRESHOLD:             Ascent threshold    
 */
+// TODO: [NS] think about making these #define
 const int ACCEL_LAUNCH_G = 2; 
 const float GRAVITY_FORCE = 9.80665;
 const int REQ_COUNT_STATE_CHANGE = 3;
@@ -113,6 +116,7 @@ const float BMP_ALTITUDE_CHANGE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_M
     bmp_previous_altitude:          Hold previous altitude value of BMP
     bmp_previous_altitude_founded:  Flag to check if previous BMP altitude exists
 */
+// TODO: [NS] does this also need to be static?
 static int counter_state_change = 0;
 static float bmp_previous_altitude = 0;
 static bool bmp_previous_altitude_founded = false;
@@ -128,6 +132,7 @@ static bool bmp_previous_altitude_founded = false;
     adxl_bias_mean_founded:         Flag to check if ADXL bias mean is founded
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
 */
+// TODO: [NS] same comment about static
 const int ADXL_SAMPLES_MAX = 20; 
 static float adxl_accel_x_mean = 0.0;
 static float adxl_accel_y_mean = 0.0;
@@ -146,6 +151,7 @@ static float adxl_accel_magnitude = 0.0;
     lsm_bias_mean_founded:         Flag to check if LSM bias mean is founded
     lsm_accel_magnitude:           Magnitude of LSM data after calibrated
 */
+// TODO: [NS] same comment about static
 const int LSM_SAMPLES_MAX = 20; 
 static float lsm_accel_x_mean = 0.0;
 static float lsm_accel_y_mean = 0.0;
@@ -161,6 +167,7 @@ static float lsm_accel_magnitude = 0.0;
     bmp_bias_samples_count:        Counter to check how many data iteration is sampled
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
 */
+// TODO: [NS] same comment about static
 const int BMP_SAMPLES_MAX = 20;
 static float bmp_altitude_mean = 0.0;
 static uint8_t bmp_bias_samples_count = 0; 
@@ -185,6 +192,7 @@ void init_spi() {
     ADXL.begin();
     /// Initialize LSM
     LSM.begin_SPI(LSM6DSO32_CS, &SPI);
+    // TODO: [MEMBERS]: add LSM data rate config
 
     /// Initialize SPI bus for SD + Lora
     gOutputData.spi2_ok = SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
@@ -306,6 +314,7 @@ void Core0_ADXL_task(void *pvParameter) {
                 gOutputData.adxl_acc_y = gEventADXL.acceleration.y;
                 gOutputData.adxl_acc_z = gEventADXL.acceleration.z;
 
+                // TODO: [NS/Leads] discuss moving to powerup sequence
                 if (!adxl_bias_mean_founded){
                     if (adxl_bias_samples_count < ADXL_SAMPLES_MAX){
                         adxl_accel_x_mean += gOutputData.adxl_acc_x;
@@ -322,6 +331,7 @@ void Core0_ADXL_task(void *pvParameter) {
                     gOutputData.adxl_acc_x = gOutputData.adxl_acc_x - adxl_accel_x_mean;
                     gOutputData.adxl_acc_y = gOutputData.adxl_acc_y - adxl_accel_y_mean;
                     gOutputData.adxl_acc_z = gOutputData.adxl_acc_z - adxl_accel_z_mean;
+                    // TODO: [NS/Leads] talk about place of this in state machine
                     adxl_accel_magnitude = sqrtf(gOutputData.adxl_acc_x*gOutputData.adxl_acc_x + 
                                                  gOutputData.adxl_acc_y*gOutputData.adxl_acc_y + 
                                                  gOutputData.adxl_acc_z*gOutputData.adxl_acc_z);
@@ -436,6 +446,7 @@ void Core0_stateMachine(void *pvParameter){
                     }
                 }
             }
+            // TODO: [NS/leads] talk about a counter reset condition
             break;
         case 1: /// ASCEND
             #ifdef DEBUG
@@ -544,6 +555,7 @@ void Core1_BNO_task(void *pvParameter) {
     }
 }
 
+// TODO: [NS] look at safety structures in this function
 void Core1_GPS_task(void *pvParameter) {
     while (1) {
         /// GPS function 
@@ -551,6 +563,7 @@ void Core1_GPS_task(void *pvParameter) {
         int bytes_processed = 0;
         bool     got_fix     = false;
         uint32_t cycle_start = millis();
+        // TODO: [NS] make 200ms a #define constant
         uint32_t timeout     = cycle_start + 200;  // ~200 ms window for this cycle
 
         while ((millis() < timeout) && !got_fix) { // Might be redudant since data is capped (Stable - Unoptimized)
