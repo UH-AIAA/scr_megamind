@@ -101,15 +101,13 @@ typedef struct{
     imu::Quaternion *pQuaternion;
 }TaskParams_t; 
 
-
-
 /*
 @brief 
     gOutputData:                   global Output object for all sensors
     gEventADXL :                   global output data for ADXL375
     gEventLSM_ :                   global output data for LSM 
     gOrientation to gAcceleromter: global output for BNO
-    gQuarternion:                 quaternion output for BNO
+    gQuarternion:                  quaternion output for BNO
 */
 OutputData_t    gOutputData; 
 sensors_event_t gEventADXL; 
@@ -135,36 +133,69 @@ bool gHasSD = false;
 static uint16_t loraCounter = 0;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  
 
-/// @brief  State Machine constants
+/*
+@brief 
+    ACCEL_LAUNCH_G:               G force multiplier for state change detection
+    GRAVITY_FORCE:                gravity force of the Earth
+    REQ_COUNT_STATE_CHANGE:       Amount of check before state is allowed to change
+*/
 const int ACCEL_LAUNCH_G = 2; 
 const float GRAVITY_FORCE = 9.80665;
+const int REQ_COUNT_STATE_CHANGE = 3;
 
 /// @brief Ascent threshold
 static float ascent_threshold = GRAVITY_FORCE * ACCEL_LAUNCH_G;
 
-/// @brief ADXL data bias (mean) for calibration
+/// @brief Counter for State change
+static int counter_state_change = 0;
+
+/*
+@brief 
+    adxl_samples_max:               Maximum data samples for calibration
+    adxl_accel_x_mean:              Mean of raw ADXL acceleration x data (Bias)
+    adxl_accel_y_mean:              Mean of raw ADXL acceleration y data (Bias)
+    adxl_accel_z_mean:              Mean of raw ADXL acceleration z data (Bias)
+    adxl_bias_samples_count:        Counter to check how many data iteration is sampled
+    adxl_bias_mean_founded:         Flag to check if ADXL bias mean is founded
+    adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
+*/
 const int adxl_samples_max = 20; 
 static float adxl_accel_x_mean = 0.0;
 static float adxl_accel_y_mean = 0.0;
 static float adxl_accel_z_mean = 0.0;
-static uint8_t adxl_bias_samples_count = 0; /// Counter for ADXL bias data sample
-static bool adxl_bias_mean_founded = false; /// Flag to check if ADXL bias mean is founded
-static float adxl_accel_magnitude = 0.0;    /// Magnitude of ADXL data after calibrated
+static uint8_t adxl_bias_samples_count = 0; 
+static bool adxl_bias_mean_founded = false; 
+static float adxl_accel_magnitude = 0.0;    
 
-/// @brief LSM data bias (mean) for calibration
+/*
+@brief 
+    lsm_samples_max:               Maximum data samples for calibration
+    lsm_accel_x_mean:              Mean of raw LSM acceleration x data (Bias)
+    lsm_accel_y_mean:              Mean of raw LSM acceleration y data (Bias)
+    lsm_accel_z_mean:              Mean of raw LSM acceleration z data (Bias)
+    lsm_bias_samples_count:        Counter to check how many data iteration is sampled
+    lsm_bias_mean_founded:         Flag to check if LSM bias mean is founded
+    lsm_accel_magnitude:           Magnitude of LSM data after calibrated
+*/
 const int lsm_samples_max = 20; 
 static float lsm_accel_x_mean = 0.0;
 static float lsm_accel_y_mean = 0.0;
 static float lsm_accel_z_mean = 0.0;
-static uint8_t lsm_bias_samples_count = 0; /// Counter for LSM bias data sample
-static bool lsm_bias_mean_founded = false; /// Flag to check if LSM bias mean is founded
-static float lsm_accel_magnitude = 0.0;    /// Magnitude of LSM data after calibrated
+static uint8_t lsm_bias_samples_count = 0; 
+static bool lsm_bias_mean_founded = false;
+static float lsm_accel_magnitude = 0.0;    
 
-/// @brief BMP daata bias (mean) for calibration
+/*
+@brief 
+    bmp_samples_max:               Maximum data samples for calibration
+    bmp_altitude_mean:             Mean of raw BMP acceleration x data (Bias)
+    bmp_bias_samples_count:        Counter to check how many data iteration is sampled
+    bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
+*/
 const int bmp_samples_max = 20;
 static float bmp_altitude_mean = 0.0;
-static uint8_t bmp_bias_samples_count = 0; /// Counter for BMP bias data sample
-static bool bmp_bias_mean_founded = false; /// Flag to check if LSM bias mean is founded
+static uint8_t bmp_bias_samples_count = 0; 
+static bool bmp_bias_mean_founded = false; 
 
 
 /// Sensors Object Instantiation
@@ -439,12 +470,20 @@ void Core0_stateMachine(void *pvParameter){
                 printf("STATE IDLE--------------------------\n");
             #endif
             if (gOutputData.adxl_ok) { // If ADXL ok
-                if (adxl_accel_magnitude > ascent_threshold) {
-                    gOutputData.flightState = 1;
+                if (adxl_accel_magnitude > ascent_threshold) { // Check if ADXL magnitude > then ascent threshold
+                    counter_state_change++;
+                    if (counter_state_change == REQ_COUNT_STATE_CHANGE){
+                        gOutputData.flightState = 1; // Change state from IDLE to ASCEND
+                        counter_state_change = 0; // Reset counter to reuse in another state
+                    }
                 }
             } else if (gOutputData.lsm_ok){ // If ADXL fails and LSM ok
-                if (lsm_accel_magnitude > ascent_threshold) {
-                    gOutputData.flightState = 1;
+                if (lsm_accel_magnitude > ascent_threshold) { // Check if LSM magnitude > then ascent threshold
+                    counter_state_change++;
+                    if (counter_state_change == REQ_COUNT_STATE_CHANGE){
+                        gOutputData.flightState = 1; // Change state from IDLE to ASCEND
+                        counter_state_change = 0; // reset counter to reuse in another state
+                    }
                 }
             }
             break;
@@ -453,16 +492,19 @@ void Core0_stateMachine(void *pvParameter){
                 printf("STATE ASCENDING---------------------\n");
 
             #endif
+            /// TBD
             break;
         case 2: /// DESCEND
             #ifdef DEBUG
                 printf("STATE DESCENDING--------------------------\n");
             #endif
+            /// TBD
             break;
         case 3: /// LANDED
             #ifdef DEBUG
                 printf("STATE LANDED--------------------------\n");
             #endif
+            /// TBD
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(10));
