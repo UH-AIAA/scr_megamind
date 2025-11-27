@@ -103,9 +103,20 @@ const int ACCEL_LAUNCH_G = 2;
 const float GRAVITY_FORCE = 9.80665;
 const int REQ_COUNT_STATE_CHANGE = 3;
 const float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
+const float BMP_STANDARD_DEVIATION = 0.07594;
+const int BMP_NOISE_MULTIPLIER = 3;
+const float BMP_ALTITUDE_CHANGE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
 
-/// @brief Counter for State change
+/*
+@brief: Helper variables for state machine
+    counter_state_change:           Counter for State change
+    bmp_previous_altitude:          Hold previous altitude value of BMP
+    bmp_previous_altitude_founded:  Flag to check if previous BMP altitude exists
+*/
 static int counter_state_change = 0;
+static float bmp_previous_altitude = 0;
+static bool bmp_previous_altitude_founded = false;
+
 
 /*
 @brief: helper variables for ADXL calibration
@@ -243,6 +254,7 @@ void Core0_BMP_task(void *pvParameter) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
             gOutputData.bmp_ok = BMP.performReading();
+            
             xSemaphoreGive(gSpiMutex_BAL);
 
             if (gOutputData.bmp_ok) {
@@ -264,7 +276,7 @@ void Core0_BMP_task(void *pvParameter) {
                 }
 
             #ifdef DEBUG
-                printf("BMP Up Time: %lu [ms]\n", (unsigned long)upTime);
+                printf("BMP Read Time: %lu [ms]\n", (unsigned long)upTime);
                 printf("BMP Temp: %f\n", gOutputData.bmp_temp);
                 printf("BMP Press: %f\n", gOutputData.bmp_press);
                 printf("BMP Alt: %f\n\n", gOutputData.bmp_alt);
@@ -307,9 +319,9 @@ void Core0_ADXL_task(void *pvParameter) {
                         adxl_bias_mean_founded = true;
                     }
                 } else {
-                    gOutputData.adxl_acc_x = fabs(gOutputData.adxl_acc_x - adxl_accel_x_mean);
-                    gOutputData.adxl_acc_y = fabs(gOutputData.adxl_acc_y - adxl_accel_y_mean);
-                    gOutputData.adxl_acc_z = fabs(gOutputData.adxl_acc_z - adxl_accel_z_mean);
+                    gOutputData.adxl_acc_x = gOutputData.adxl_acc_x - adxl_accel_x_mean;
+                    gOutputData.adxl_acc_y = gOutputData.adxl_acc_y - adxl_accel_y_mean;
+                    gOutputData.adxl_acc_z = gOutputData.adxl_acc_z - adxl_accel_z_mean;
                     adxl_accel_magnitude = sqrtf(gOutputData.adxl_acc_x*gOutputData.adxl_acc_x + 
                                                  gOutputData.adxl_acc_y*gOutputData.adxl_acc_y + 
                                                  gOutputData.adxl_acc_z*gOutputData.adxl_acc_z);
@@ -366,9 +378,9 @@ void Core0_LSM_task(void *pvParameter) {
                         lsm_bias_mean_founded = true;
                     }
                 } else {
-                    gOutputData.lsm_acc_x = fabs(gOutputData.lsm_acc_x - lsm_accel_x_mean);
-                    gOutputData.lsm_acc_y = fabs(gOutputData.lsm_acc_y - lsm_accel_y_mean);
-                    gOutputData.lsm_acc_z = fabs(gOutputData.lsm_acc_z - lsm_accel_z_mean);
+                    gOutputData.lsm_acc_x = gOutputData.lsm_acc_x - lsm_accel_x_mean;
+                    gOutputData.lsm_acc_y = gOutputData.lsm_acc_y - lsm_accel_y_mean;
+                    gOutputData.lsm_acc_z = gOutputData.lsm_acc_z - lsm_accel_z_mean;
                     lsm_accel_magnitude = sqrtf(gOutputData.lsm_acc_x*gOutputData.lsm_acc_x + 
                                                 gOutputData.lsm_acc_y*gOutputData.lsm_acc_y + 
                                                 gOutputData.lsm_acc_z*gOutputData.lsm_acc_z);
@@ -428,9 +440,8 @@ void Core0_stateMachine(void *pvParameter){
         case 1: /// ASCEND
             #ifdef DEBUG
                 printf("STATE ASCENDING---------------------\n");
-
             #endif
-            /// TBD
+            
             break;
         case 2: /// DESCEND
             #ifdef DEBUG
