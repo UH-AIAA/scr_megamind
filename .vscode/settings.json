@@ -3,5 +3,5 @@
         "functional": "cpp"
     },
     "idf.flashType": "UART",
-    "idf.portWin": "COM4"
+    "idf.portWin": "COM11"
 }
