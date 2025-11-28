@@ -57,6 +57,7 @@ typedef struct{
     bool lora_ok = false;
 
     uint8_t flightState = 0;
+    float bmp_apogee_record = 0;
 
 } OutputData_t; 
 
@@ -104,11 +105,16 @@ const int MAX_GPS_BYTES_PER_LOOP = 64;
 // TODO: [NS] think about making these #define
 const int ACCEL_LAUNCH_G = 2; 
 const float GRAVITY_FORCE = 9.80665;
+const float JUNO_MAX_SPEED = 301.483;
 const int REQ_COUNT_STATE_CHANGE = 3;
-const float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
+const float BMP_DATA_RATE = 0.0355;
 const float BMP_STANDARD_DEVIATION = 0.07594;
 const int BMP_NOISE_MULTIPLIER = 3;
-const float BMP_ALTITUDE_CHANGE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
+const int BMP_DESCEND_THRESHOLD = 20;
+const float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
+const float BMP_STEP_MAX = JUNO_MAX_SPEED * BMP_DATA_RATE;
+const float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
+
 
 /*
 @brief: Helper variables for state machine
@@ -120,6 +126,8 @@ const float BMP_ALTITUDE_CHANGE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_M
 static int counter_state_change = 0;
 static float bmp_previous_altitude = 0;
 static bool bmp_previous_altitude_founded = false;
+static float bmp_altitude_change = 0;
+static float bmp_peak_altitude = 0;
 
 
 /*
@@ -163,6 +171,7 @@ static float lsm_accel_magnitude = 0.0;
 /*
 @brief: helper variables for BMP calibration
     BMP_SAMPLES_MAX:               Maximum data samples for calibration
+    BMP_STEP_MAX:                  Maximum step that each data sample can step
     bmp_altitude_mean:             Mean of raw BMP acceleration x data (Bias)
     bmp_bias_samples_count:        Counter to check how many data iteration is sampled
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
@@ -262,7 +271,6 @@ void Core0_BMP_task(void *pvParameter) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
             gOutputData.bmp_ok = BMP.performReading();
-            
             xSemaphoreGive(gSpiMutex_BAL);
 
             if (gOutputData.bmp_ok) {
@@ -270,17 +278,37 @@ void Core0_BMP_task(void *pvParameter) {
                 gOutputData.bmp_temp  = BMP.temperature;
                 gOutputData.bmp_press = BMP.pressure;
                 gOutputData.bmp_alt   = BMP.readAltitude(1013.25f);
-
-                if (!bmp_bias_mean_founded){
-                    if (bmp_bias_samples_count < BMP_SAMPLES_MAX){
-                        bmp_altitude_mean += gOutputData.bmp_alt;
-                        bmp_bias_samples_count++;
-                    } else {
-                        bmp_altitude_mean = bmp_altitude_mean / BMP_SAMPLES_MAX;
-                        bmp_bias_mean_founded = true;
+                /// Find mean of BMP altitude for calibration in IDLE state
+                if (gOutputData.flightState == 0) { 
+                    if (!bmp_bias_mean_founded) {
+                        if (bmp_bias_samples_count < BMP_SAMPLES_MAX){
+                            bmp_altitude_mean += gOutputData.bmp_alt;
+                            bmp_bias_samples_count++;
+                        } else {
+                            bmp_altitude_mean = bmp_altitude_mean / BMP_SAMPLES_MAX;
+                            bmp_bias_mean_founded = true;
+                        }
                     }
+                }
+                /// Calibrate BMP altitude data with founded mean at any state
+                if (bmp_bias_mean_founded) {
+                    gOutputData.bmp_alt = gOutputData.bmp_alt - bmp_altitude_mean;
+                }
+
+                if (!bmp_previous_altitude_founded) {
+                    bmp_previous_altitude = gOutputData.bmp_alt;
+                    bmp_previous_altitude_founded = true;
                 } else {
-                    gOutputData.bmp_alt = fabs(gOutputData.bmp_alt - bmp_altitude_mean);
+                    bmp_altitude_change = gOutputData.bmp_alt - bmp_previous_altitude;
+                    if (gOutputData.flightState == 0) {  
+                        if (fabsf(bmp_altitude_change) > BMP_STEP_MAX) {
+                            bmp_altitude_change = 0;
+                        } else {
+                            bmp_previous_altitude   = gOutputData.bmp_alt; 
+                        }
+                    } else {
+                        bmp_previous_altitude = gOutputData.bmp_alt;
+                    }
                 }
 
             #ifdef DEBUG
@@ -432,19 +460,26 @@ void Core0_stateMachine(void *pvParameter){
             if (gOutputData.adxl_ok) { // If ADXL ok
                 if (adxl_accel_magnitude > ASCEND_THRESHOLD) { // Check if ADXL magnitude > then ascent threshold
                     counter_state_change++;
-                    if (counter_state_change == REQ_COUNT_STATE_CHANGE){
+                    if (counter_state_change >= REQ_COUNT_STATE_CHANGE){
                         gOutputData.flightState = 1; // Change state from IDLE to ASCEND
                         counter_state_change = 0; // Reset counter to reuse in another state
-                    }
+                    } 
+                } else {
+                    counter_state_change = 0; // Reset counter to avoid bad data iterations
                 }
-            } else if (gOutputData.lsm_ok){ // If ADXL fails and LSM ok
+            } else if (gOutputData.lsm_ok) { // If ADXL fails and LSM ok
                 if (lsm_accel_magnitude > ASCEND_THRESHOLD) { // Check if LSM magnitude > then ascent threshold
                     counter_state_change++;
-                    if (counter_state_change == REQ_COUNT_STATE_CHANGE){
+                    if (counter_state_change >= REQ_COUNT_STATE_CHANGE) {
                         gOutputData.flightState = 1; // Change state from IDLE to ASCEND
-                        counter_state_change = 0; // reset counter to reuse in another state
+                        bmp_peak_altitude = gOutputData.bmp_alt; // Peak = Current altitude to prevent data stale in worst case
+                        counter_state_change = 0; // Reset counter to reuse in another state
                     }
+                } else {
+                    counter_state_change = 0; // Reset counter to avoid bad data iterations
                 }
+            } else {
+                counter_state_change = 0; // Reset counter to avoid bad data iterations from both sensors
             }
             // TODO: [NS/leads] talk about a counter reset condition
             break;
@@ -452,7 +487,28 @@ void Core0_stateMachine(void *pvParameter){
             #ifdef DEBUG
                 printf("STATE ASCENDING---------------------\n");
             #endif
-            
+            if (gOutputData.bmp_ok) {
+                if (fabs(bmp_altitude_change) >= BMP_NOISE_THRESHOLD && fabs(bmp_altitude_change) <= BMP_STEP_MAX) {
+                    if (gOutputData.bmp_alt > bmp_peak_altitude) {
+                        bmp_peak_altitude = gOutputData.bmp_alt;
+                        counter_state_change = 0;
+                    } else {
+                        float drop_from_peak = bmp_peak_altitude - gOutputData.bmp_alt;
+                        if (drop_from_peak > BMP_DESCEND_THRESHOLD) {
+                            counter_state_change++;
+                            if (counter_state_change >= REQ_COUNT_STATE_CHANGE) {
+                                gOutputData.flightState = 2;
+                                gOutputData.bmp_apogee_record = bmp_peak_altitude;
+                                counter_state_change = 0;
+                            }
+                        } else {
+                            counter_state_change = 0;
+                        }
+                    }
+                } else {
+                    counter_state_change = 0;
+                }
+            }
             break;
         case 2: /// DESCEND
             #ifdef DEBUG
