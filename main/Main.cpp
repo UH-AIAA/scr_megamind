@@ -58,7 +58,6 @@ typedef struct{
 
     uint8_t flightState = 0;
     float bmp_apogee_record = 0;
-
 } OutputData_t; 
 
 /*
@@ -92,7 +91,7 @@ SemaphoreHandle_t gI2cMutex;
 bool gHasSD = false;
 
 // TODO: [NS] does this need to be static?
-static uint16_t loraCounter = 0;
+uint16_t loraCounter = 0;
 const int MAX_GPS_BYTES_PER_LOOP = 64;  
 
 /*
