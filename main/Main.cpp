@@ -114,6 +114,13 @@ const int BMP_DESCEND_THRESHOLD = 20;
 const float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
 const float BMP_STEP_MAX = JUNO_MAX_SPEED * BMP_DATA_RATE;
 const float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
+const int BMP_LAND_THRESHOLD = 40;
+const float ADXL_MAGNITUDE_STANDARD_DEVIATION = 0.698823;
+const float LSM_MAGNITUDE_STANDARD_DEVIATION = 0.0005284;
+const int LAND_NOISE_MULTIPLIER = 3.5;
+const float ADXL_LAND_THRESHOLD = ADXL_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
+const float LSM_LAND_THRESHOLD = LSM_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
+const int LAND_COUNTER_MAX = 1000;
 
 
 /*
@@ -123,11 +130,15 @@ const float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
     bmp_previous_altitude_founded:  Flag to check if previous BMP altitude exists
 */
 // TODO: [NS] does this also need to be static?
-static int counter_state_change = 0;
-static float bmp_previous_altitude = 0;
-static bool bmp_previous_altitude_founded = false;
-static float bmp_altitude_change = 0;
-static float bmp_peak_altitude = 0;
+int counter_state_change = 0;
+float bmp_previous_altitude = 0;
+bool bmp_previous_altitude_founded = false;
+float bmp_altitude_change = 0;
+float bmp_peak_altitude = 0;
+bool land_condition = false;
+bool low_altitude = false;
+bool low_acceleration = false;
+int land_counter = 0;
 
 
 /*
@@ -142,12 +153,12 @@ static float bmp_peak_altitude = 0;
 */
 // TODO: [NS] same comment about static
 const int ADXL_SAMPLES_MAX = 20; 
-static float adxl_accel_x_mean = 0.0;
-static float adxl_accel_y_mean = 0.0;
-static float adxl_accel_z_mean = 0.0;
-static uint8_t adxl_bias_samples_count = 0; 
-static bool adxl_bias_mean_founded = false; 
-static float adxl_accel_magnitude = 0.0;    
+float adxl_accel_x_mean = 0.0;
+float adxl_accel_y_mean = 0.0;
+float adxl_accel_z_mean = 0.0;
+uint8_t adxl_bias_samples_count = 0; 
+bool adxl_bias_mean_founded = false; 
+float adxl_accel_magnitude = 0.0;    
 
 /*
 @brief: helper variables for LSM calibration
@@ -161,12 +172,12 @@ static float adxl_accel_magnitude = 0.0;
 */
 // TODO: [NS] same comment about static
 const int LSM_SAMPLES_MAX = 20; 
-static float lsm_accel_x_mean = 0.0;
-static float lsm_accel_y_mean = 0.0;
-static float lsm_accel_z_mean = 0.0;
-static uint8_t lsm_bias_samples_count = 0; 
-static bool lsm_bias_mean_founded = false;
-static float lsm_accel_magnitude = 0.0;    
+float lsm_accel_x_mean = 0.0;
+float lsm_accel_y_mean = 0.0;
+float lsm_accel_z_mean = 0.0;
+uint8_t lsm_bias_samples_count = 0; 
+bool lsm_bias_mean_founded = false;
+float lsm_accel_magnitude = 0.0;    
 
 /*
 @brief: helper variables for BMP calibration
@@ -178,9 +189,9 @@ static float lsm_accel_magnitude = 0.0;
 */
 // TODO: [NS] same comment about static
 const int BMP_SAMPLES_MAX = 20;
-static float bmp_altitude_mean = 0.0;
-static uint8_t bmp_bias_samples_count = 0; 
-static bool bmp_bias_mean_founded = false; 
+float bmp_altitude_mean = 0.0;
+uint8_t bmp_bias_samples_count = 0; 
+bool bmp_bias_mean_founded = false; 
 
 /// Sensors Object Instantiation
 Adafruit_BMP5xx     BMP;
@@ -507,20 +518,63 @@ void Core0_stateMachine(void *pvParameter){
                     }
                 } else {
                     counter_state_change = 0;
-                }
+                }  
             }
             break;
         case 2: /// DESCEND
             #ifdef DEBUG
                 printf("STATE DESCENDING--------------------------\n");
             #endif
-            /// TBD
+
+            if (gOutputData.bmp_ok) {
+                if (gOutputData.bmp_alt < BMP_LAND_THRESHOLD) {
+                    low_altitude = true;
+                }
+            }
+            /// If ADXL doesn't work, fall back to LSM
+            if (gOutputData.adxl_ok) {
+                if (adxl_accel_magnitude < ADXL_LAND_THRESHOLD) {
+                    low_acceleration = true;
+                }
+            } else if (gOutputData.lsm_ok) {
+                if (lsm_accel_magnitude < LSM_LAND_THRESHOLD) {
+                    low_acceleration = true;
+                }
+            }
+
+
+            if (gOutputData.bmp_ok && (gOutputData.adxl_ok || gOutputData.lsm_ok)) {
+                land_condition = low_altitude && low_acceleration;
+            } else if (gOutputData.bmp_ok) {
+                land_condition = low_altitude;
+            } else if (gOutputData.adxl_ok || gOutputData.lsm_ok) {
+                land_condition = low_acceleration;
+            } else {
+                land_condition = false;
+                land_counter++;
+                if (land_counter >= LAND_COUNTER_MAX) {
+                    land_condition = true;
+                }
+            }
+              
+            if (land_condition) {
+                counter_state_change++;
+                if (counter_state_change >= REQ_COUNT_STATE_CHANGE + 2) {
+                    gOutputData.flightState = 3;
+                    counter_state_change = 0;
+                }
+            } else {
+                counter_state_change = 0;
+            }
+
             break;
         case 3: /// LANDED
             #ifdef DEBUG
                 printf("STATE LANDED--------------------------\n");
             #endif
-            /// TBD
+            //  In the future, the flight computer could determine if the rocket is landed 
+            // and cut off power to BMP, ADXL, LSM, BNO using a relayto keep power for the
+            //GPS, Lora, and SD module so it can perform essential duties as long as possible.
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(15));
