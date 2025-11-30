@@ -707,14 +707,14 @@ void Core1_GPS_task(void *pvParameter) {
         bool  m_got_fix     = false;
         uint32_t cycle_start = millis();
         // TODO: [NS] make 200ms a #define constant
-        uint32_t timeout = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
+        uint32_t m_timeout = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
 
-        while ((millis() < timeout) && !got_fix) { // Might be redudant since data is capped (Stable - Unoptimized)
+        while ((millis() < m_timeout) && !m_got_fix) { // Might be redudant since data is capped (Stable - Unoptimized)
             // Try to grab I2C bus briefly
             if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 upTime = xTaskGetTickCount();
                 // Drain only certain bytes currently in the GPS buffer to PREVENT INFINITE LOOP (Stable-Unoptimized)
-                while (GPS.available() && bytes_processed < MAX_GPS_BYTES_PER_LOOP) {
+                while (GPS.available() && m_bytes_processed < MAX_GPS_BYTES_PER_LOOP) {
                     GPS.read();  /// reads ONE byte
                     if (GPS.newNMEAreceived()) {
                         /// Parse only good sentences
@@ -738,12 +738,12 @@ void Core1_GPS_task(void *pvParameter) {
                                 printf("Altitude:  %f [m]\n\n", gOutputData.gps_alt);
                             #endif
 
-                            got_fix = true;
+                            m_got_fix = true;
                             gOutputData.gpsFix_ok = true;
                             break;  // break while(GPS.available())
                         }
                     }
-                    bytes_processed++;
+                    m_bytes_processed++;
                 }
                 xSemaphoreGive(gI2cMutex);
             } else {
@@ -753,7 +753,7 @@ void Core1_GPS_task(void *pvParameter) {
             }
         }
 
-        if (!got_fix) {
+        if (!m_got_fix) {
             #ifdef DEBUG
                 printf("GPS: no valid fix this cycle\n");
             #endif
