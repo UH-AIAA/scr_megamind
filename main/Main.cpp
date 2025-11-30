@@ -96,9 +96,9 @@ SemaphoreHandle_t gI2cMutex;
 bool gHasSD = false;
 
 // TODO: [NS] does this need to be static?
-const uint8_t MAX_GPS_BYTES_PER_LOOP = 64;  
+constexpr uint8_t MAX_GPS_BYTES_PER_LOOP = 64;  
 uint32_t loraCounter = 0;
-const uint8_t GPS_TIMEOUT = 200;
+constexpr uint8_t GPS_TIMEOUT = 200;
 
 /// @brief: Constant for state machine
 /*
@@ -131,24 +131,24 @@ const uint8_t GPS_TIMEOUT = 200;
                                         Noise threshold = Multiplier factor * standard deviation
 */
 // TODO: [NS] think about making these #define 
-const uint8_t ACCEL_LAUNCH_G = 2; 
-const float GRAVITY_FORCE = 9.80665;
-const float JUNO_MAX_SPEED = 301.483;
-const uint8_t REQ_COUNT_STATE_CHANGE = 3;
-const float BMP_DATA_RATE = 0.0355;
-const float BMP_STANDARD_DEVIATION = 0.07594;
-const uint8_t BMP_NOISE_MULTIPLIER = 3;
-const uint8_t BMP_DESCEND_THRESHOLD = 20;
-const float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
-const float BMP_STEP_MAX = JUNO_MAX_SPEED * BMP_DATA_RATE;
-const float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
-const uint8_t BMP_LAND_THRESHOLD = 41;
-const float ADXL_MAGNITUDE_STANDARD_DEVIATION = 0.698823;
-const float LSM_MAGNITUDE_STANDARD_DEVIATION = 0.0005284;
-const float LAND_NOISE_MULTIPLIER = 3.5;
-const float ADXL_LAND_THRESHOLD = ADXL_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
-const float LSM_LAND_THRESHOLD = LSM_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
-const uint16_t LAND_COUNTER_MAX = 300;
+constexpr uint8_t ACCEL_LAUNCH_G = 2; 
+constexpr float GRAVITY_FORCE = 9.80665;
+constexpr float JUNO_MAX_SPEED = 301.483;
+constexpr uint8_t REQ_COUNT_STATE_CHANGE = 3;
+constexpr float BMP_DATA_RATE = 0.0355;
+constexpr float BMP_STANDARD_DEVIATION = 0.07594;
+constexpr uint8_t BMP_NOISE_MULTIPLIER = 3;
+constexpr uint8_t BMP_DESCEND_THRESHOLD = 20;
+constexpr float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
+constexpr float BMP_STEP_MAX = JUNO_MAX_SPEED * BMP_DATA_RATE;
+constexpr float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
+constexpr uint8_t BMP_LAND_THRESHOLD = 41;
+constexpr float ADXL_MAGNITUDE_STANDARD_DEVIATION = 0.698823;
+constexpr float LSM_MAGNITUDE_STANDARD_DEVIATION = 0.0005284;
+constexpr float LAND_NOISE_MULTIPLIER = 3.5;
+constexpr float ADXL_LAND_THRESHOLD = ADXL_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
+constexpr float LSM_LAND_THRESHOLD = LSM_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
+constexpr uint16_t LAND_COUNTER_MAX = 300;
 
 /// @brief: Helper variables for state machine
 /*
@@ -184,7 +184,7 @@ uint16_t land_counter = 0;
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
 */
 // TODO: [NS] same comment about static
-const uint8_t ADXL_SAMPLES_MAX = 20; 
+constexpr uint8_t ADXL_SAMPLES_MAX = 20; 
 float adxl_accel_x_mean = 0.0;
 float adxl_accel_y_mean = 0.0;
 float adxl_accel_z_mean = 0.0;
@@ -203,7 +203,7 @@ float adxl_accel_magnitude = 0.0;
     lsm_accel_magnitude:           Magnitude of LSM data after calibrated
 */
 // TODO: [NS] same comment about static
-const uint8_t LSM_SAMPLES_MAX = 20; 
+constexpr uint8_t LSM_SAMPLES_MAX = 20; 
 float lsm_accel_x_mean = 0.0;
 float lsm_accel_y_mean = 0.0;
 float lsm_accel_z_mean = 0.0;
@@ -219,7 +219,7 @@ float lsm_accel_magnitude = 0.0;
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
 */
 // TODO: [NS] same comment about static
-const uint8_t BMP_SAMPLES_MAX = 20;
+constexpr uint8_t BMP_SAMPLES_MAX = 20;
 float bmp_altitude_mean = 0.0;
 uint8_t bmp_bias_samples_count = 0; 
 bool bmp_bias_mean_founded = false; 
@@ -703,11 +703,11 @@ void Core1_BNO_task(void *pvParameter) {
 // TODO: [NS] look at safety structures in this function
 void Core1_GPS_task(void *pvParameter) {
     while (1) {
-        int bytes_processed = 0;
-        bool     got_fix     = false;
+        uint8_t m_bytes_processed = 0;
+        bool  m_got_fix     = false;
         uint32_t cycle_start = millis();
         // TODO: [NS] make 200ms a #define constant
-        uint32_t timeout     = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
+        uint32_t timeout = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
 
         while ((millis() < timeout) && !got_fix) { // Might be redudant since data is capped (Stable - Unoptimized)
             // Try to grab I2C bus briefly
