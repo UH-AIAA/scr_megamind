@@ -67,6 +67,11 @@ Adafruit_GPS GPS(&Wire);
 // SPIClass SPI2(HSPI);
 File sdData;
 
+//SPI mutex
+static SemaphoreHandle_t mutex;
+
+
+
 void init_spi() {
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
@@ -121,6 +126,9 @@ extern "C" void app_main()
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
+
+    //initiate Mutex, I assume this is the right place to do it
+    mutex = xSemaphoreCreateMutex();
 
     // create launch task
     xTaskCreate(
@@ -237,6 +245,11 @@ void GPS_task(void *pvParameter) {
 void ADXL_task(void *pvParameter) {
 
     while(1) {
+
+    //take mutex
+    //will only execute if mutux in open
+    if(xSemaphoreTake(mutex, 0) == pdTRUE){
+
     //ADXL already initialized in previous code?
         //check ADXL connection and yield to other tasks if connection bad
         uint32_t startTime = millis();
@@ -265,11 +278,18 @@ void ADXL_task(void *pvParameter) {
         //delay(500);
         //delay 1 tick
         vTaskDelay(pdMS_TO_TICKS(1));
+
+        //gives the mutex back
+        xSemaphoreGive(mutex);
+    }
     }
 }
 
 void BNO_task(void *pvParameter) {
     while (1) {
+
+    
+
         // printf("BNO Task Called!\n");
         sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
 
@@ -311,11 +331,16 @@ void BNO_task(void *pvParameter) {
         #endif
 
         vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
+
     }
 }
 
 void LSM_task(void *pvParameter) {
     while (1) {
+
+        //checks for mutex
+        if(xSemaphoreTake(mutex, 0) == pdTRUE){
+
         TickType_t uptime = xTaskGetTickCount();
 
         uint32_t startTime = millis();
@@ -349,6 +374,10 @@ void LSM_task(void *pvParameter) {
         //delay funct 
         //delay (500), 1 tick
         vTaskDelay(pdMS_TO_TICKS(5));
+
+         xSemaphoreGive(mutex);//gives back mutex
+
+    }
     }
 }
 
@@ -358,6 +387,10 @@ void BMP_task(void *pvParameter) {
     static TickType_t upTime;
     static uint32_t startTime, endTime;
     while(1) {
+
+        //checks for mutex
+        if(xSemaphoreTake(mutex, 0) == pdTRUE){
+
         // time systea
         startTime = millis();
         upTime = xTaskGetTickCount();
@@ -389,5 +422,8 @@ void BMP_task(void *pvParameter) {
     // cleanup:
     //     vTaskDelay(pdMS_TO_TICKS(10));
     //     taskYIELD();
+        xSemaphoreGive(mutex);//gives back mutex
+
+        }
     }
 }
