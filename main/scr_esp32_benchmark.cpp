@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////
 /*                           N. Samuell                              */
 /*                      FreeRTOS/ESP-IDF test                        */
-/*                          MIT License                              */
+/*                          MIT License                              */ 
 ///////////////////////////////////////////////////////////////////////
 
 
@@ -13,11 +13,12 @@
 
 #include "esp_system.h"
 #include "driver/gpio.h"
+#include "esp_task_wdt.h"
 
 // SPI imports, I^2C, and UART Imports
 #include "SPI.h"
 #include "Arduino.h"
-#include "Adafruit_BMP3XX.h"
+#include "Adafruit_BMP5xx.h"
 #include "Adafruit_ADXL375.h"
 #include "Adafruit_LSM6DSO32.h"
 #include "Adafruit_BNO055.h"
@@ -58,22 +59,31 @@
 #define DEBUG
 
 // Chip Object Instantiation
-Adafruit_BMP3XX BMP;
-Adafruit_ADXL375 ADXL(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, ADXL375_CS);
+Adafruit_BMP5xx BMP;
+Adafruit_ADXL375 ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
+// SPIClass SPI2(HSPI);
+File sdData;
 
 void init_spi() {
-    // set outputs/inputs for software spi
-    gpio_set_direction(GPIO_NUM_12, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_11, GPIO_MODE_INPUT);
-
-    // start SPI bus
-    BMP.begin_SPI(BMP390_CS, SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN);
+    // use Arduino SPI (for now...)
+    printf("made it into init_spi\n");
+    bool spiStatus = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
+    
+    // start SPI sensors on bus
+    BMP.begin(BMP390_CS, &SPI);
     ADXL.begin();
-    LSM.begin_SPI(LSM6DSO32_CS, SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN);
+    LSM.begin_SPI(LSM6DSO32_CS, &SPI);
+
+    // TODO: [NS] add SD/Lora SPI
+
+    // sensor setup
+    BMP.setPressureOversampling(BMP5XX_OVERSAMPLING_1X);
+    BMP.setOutputDataRate(BMP5XX_ODR_50_HZ);
+    BMP.setPowerMode(BMP5XX_POWERMODE_NORMAL);
+    BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 }
 
 void init_I2C() {
@@ -88,10 +98,14 @@ void init_I2C() {
     BNO.begin();
 }
 
+// TODO: [NS/LF] figure out how to get these in another file to avoid polluting main
 void ADXL_task(void *pvParameter);
 void BNO_task(void *pvParameter);
 void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
+void BMP_task(void *pvParameter);
+
+void MegaMind_LAUNCH(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -102,18 +116,34 @@ extern "C" void app_main()
     init_spi();
 
     // init I^2C bus
+    vTaskDelay(pdMS_TO_TICKS(1));
     init_I2C();
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 
+    // create launch task
     xTaskCreate(
-        GPS_task,     // Arg 1: The function to run
-        "GPS Task",   // Arg 2: A name for debugging
-        5000,         // Arg 3: Stack size (memory for the task)
-        NULL,         // Arg 4: The parameter to pass to the task
-        3,            // Arg 5: The task's priority
-        NULL          // Arg 6: The task handle (NULL is fine)
+        MegaMind_LAUNCH,    // [in] function pointer
+        "MegaMind_LAUNCH",  // [in] debug name, leave same as function name plz
+        50000,              // [in] function stack frame size (bytes),
+        NULL,               // [in] parameters to pass
+        2,                  // [in] task prioirity
+        NULL                // [in] task handle (leave null)
+    );
+}
+
+// main RTOS entry point, trying to start arduino spi in app_main
+// causes RTOS infrastructure problems bc ESP + Arduino is shitty
+void MegaMind_LAUNCH(void *pvParameter) {
+    // create tasks!
+    xTaskCreate(
+        GPS_task,
+        "GPS Task",
+        5000,
+        NULL,
+        3,
+        NULL
     );
     
     xTaskCreatePinnedToCore(
@@ -145,6 +175,19 @@ extern "C" void app_main()
         NULL,
         0
     );
+
+    xTaskCreatePinnedToCore(
+        BMP_task,
+        "BMP_task",
+        5000,
+        NULL,
+        1,
+        NULL,
+        0
+    );
+
+    // delete task after it starts everything
+    vTaskDelete(NULL);
 }
 
 void GPS_task(void *pvParameter) {
@@ -306,5 +349,45 @@ void LSM_task(void *pvParameter) {
         //delay funct 
         //delay (500), 1 tick
         vTaskDelay(pdMS_TO_TICKS(5));
+    }
+}
+
+void BMP_task(void *pvParameter) {
+    static bool bmp_up;
+    static float bmp_temp, bmp_press, bmp_alt;
+    static TickType_t upTime;
+    static uint32_t startTime, endTime;
+    while(1) {
+        // time systea
+        startTime = millis();
+        upTime = xTaskGetTickCount();
+        bmp_up = BMP.performReading();
+
+        if(bmp_up) {
+            bmp_temp = BMP.temperature;
+            bmp_press = BMP.pressure;
+            bmp_alt = BMP.readAltitude(1013.25f);
+
+            // TODO: [NS] add calibration
+
+            #ifdef DEBUG
+                printf("BMP reporting OK!\n");
+                printf("BMP Temp: %f\n", bmp_temp);
+                printf("BMP Press: %f\n", bmp_press);
+                printf("BMP Alt: %f\n", bmp_alt);
+                printf("Uptime [ms/ticks]: %lu\n\n", upTime);
+                endTime = millis();
+                printf("Elapsed Time: %li\n\n\n", endTime - startTime);
+            #endif
+            vTaskDelay(pdMS_TO_TICKS(10));  // TODO: [NS] optimize timing
+        } else {
+            #ifdef DEBUG
+                printf("BMP reporting NOT OK!\n\n");
+            #endif
+        }
+
+    // cleanup:
+    //     vTaskDelay(pdMS_TO_TICKS(10));
+    //     taskYIELD();
     }
 }
