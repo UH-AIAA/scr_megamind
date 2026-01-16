@@ -1,5 +1,5 @@
 idf_component_register(SRCS "src/prototype_main.cpp" 
-                    INCLUDE_DIRS "." "include"
+                    INCLUDE_DIRS "." 
                     REQUIRES 
                         arduino
                         LoRa

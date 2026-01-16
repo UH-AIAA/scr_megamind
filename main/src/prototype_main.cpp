@@ -18,7 +18,8 @@
 #include "Adafruit_GPS.h"
 #include "LoRa.h"
 #include "SD.h"
-#include "prototype_main.h"
+
+#include "include/prototype_main.h"
 
 /// Define frequency Lora + SD
 #define LORA_FREQ 915E6 /// 915MHz frequency for Lora

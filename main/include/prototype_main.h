@@ -1,3 +1,6 @@
+#ifndef PROTOTYPE_MAIN_H
+#define PROTOTYPE_MAIN_H
+
 /// Hardware Pins import
 #include "Pins.h"
 
@@ -46,3 +49,5 @@ void Core1_BNO_task(void *pvParameter);
 void Core1_GPS_task(void *pvParameter);
 void Core1_SD_task(void *pvParameter);
 void Core1_Lora_task(void *pvParameter);
+
+#endif
