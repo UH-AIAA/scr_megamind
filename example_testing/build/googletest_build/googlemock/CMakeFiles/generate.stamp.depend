@@ -1,0 +1,10 @@
+# CMake generation dependency list for this directory.
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CheckCSourceCompiles.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CheckIncludeFile.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CheckLibraryExists.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/FindPackageHandleStandardArgs.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/FindPackageMessage.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/FindThreads.cmake
+C:/Users/phamt/Downloads/scr_megamind/test_components/googletest/googlemock/CMakeLists.txt
+C:/Users/phamt/Downloads/scr_megamind/test_components/googletest/googlemock/cmake/gmock.pc.in
+C:/Users/phamt/Downloads/scr_megamind/test_components/googletest/googlemock/cmake/gmock_main.pc.in
