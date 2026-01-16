@@ -1,0 +1,10 @@
+^C:\USERS\PHAMT\DOWNLOADS\SCR_MEGAMIND\MAIN\PROTOTYPE_MAIN\CMAKELISTS.TXT
+setlocal
+C:\Users\phamt\.espressif\tools\cmake\3.30.2\bin\cmake.exe -SC:/Users/phamt/Downloads/scr_megamind/main/prototype_main -BC:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build --check-stamp-file C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

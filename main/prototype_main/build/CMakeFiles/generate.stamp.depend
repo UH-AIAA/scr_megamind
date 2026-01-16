@@ -1,0 +1,25 @@
+# CMake generation dependency list for this directory.
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeCInformation.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeCXXInformation.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeGenericSystem.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeRCInformation.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Compiler/MSVC-C.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Compiler/MSVC-CXX.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Compiler/MSVC.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/Windows-Initialize.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/Windows-MSVC-C.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/Windows-MSVC-CXX.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/Windows-MSVC.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/Windows.cmake
+C:/Users/phamt/.espressif/tools/cmake/3.30.2/share/cmake-3.30/Modules/Platform/WindowsPaths.cmake
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/CMakeLists.txt
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/3.30.2/CMakeCCompiler.cmake
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/3.30.2/CMakeCXXCompiler.cmake
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/3.30.2/CMakeRCCompiler.cmake
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/3.30.2/CMakeSystem.cmake
