@@ -129,9 +129,9 @@ extern "C" void app_main()
 
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
-
-    // create launch task
-    xTaskCreate(
+    
+    // sample task for your convenience
+/*    xTaskCreate(
         MegaMind_LAUNCH,    // [in] function pointer
         "MegaMind_LAUNCH",  // [in] debug name, leave same as function name plz
         50000,              // [in] function stack frame size (bytes),
@@ -139,11 +139,7 @@ extern "C" void app_main()
         2,                  // [in] task prioirity
         NULL                // [in] task handle (leave null)
     );
-}
-
-// main RTOS entry point, trying to start arduino spi in app_main
-// causes RTOS infrastructure problems bc ESP + Arduino is shitty
-void MegaMind_LAUNCH(void *pvParameter) {
+*/
     // create tasks!
     xTaskCreatePinnedToCore(
         GPS_task,
@@ -194,9 +190,6 @@ void MegaMind_LAUNCH(void *pvParameter) {
         NULL,
         0
     );
-
-    // delete task after it starts everything
-    vTaskDelete(NULL);
 }
 
 void GPS_task(void *pvParameter) {
