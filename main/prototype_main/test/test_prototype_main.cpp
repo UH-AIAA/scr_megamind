@@ -2,7 +2,7 @@
 #include "../include/prototype_main.h"
 #include "../constants/Const.h"
 
-//Write unit test for calibration proecess with mock data
+//Write unit test for calibration process with mock data
 
 TEST(StateMachineTest, ADXLdleToDescendOk) {
     OutputData_t gOutputData;
@@ -38,3 +38,39 @@ TEST(StateMachineTest, ADXLIdleToAscendFail){
     ADXLIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
     EXPECT_NE(gOutputData.flightState, 1);
 }
+
+TEST(StateMachineTest, LSMdleToDescendOk) {
+    OutputData_t gOutputData;
+    MagnitudeData_t gMagnitudeData;
+    uint8_t counter_state_change = 0;
+    gOutputData.flightState = 0;
+    float peakAltitude = 0.0;
+    gOutputData.bmp_alt = 10.0;
+    gMagnitudeData.lsm_accel_magnitude = 20;
+
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    gOutputData.bmp_alt++;
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    gOutputData.bmp_alt++;
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    
+    EXPECT_EQ(gOutputData.flightState, 1);
+    EXPECT_EQ(counter_state_change, 0);
+    EXPECT_EQ(peakAltitude, 12);
+}
+
+TEST(StateMachineTest, LSMIdleToAscendFail){
+    OutputData_t gOutputData;
+    MagnitudeData_t gMagnitudeData;
+    uint8_t counter_state_change = 2;
+    gOutputData.flightState = 0;
+    float peakAltitude = 0.0;
+    gMagnitudeData.lsm_accel_magnitude = 10;
+
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    gMagnitudeData.lsm_accel_magnitude = 20;
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, peakAltitude);
+    EXPECT_NE(gOutputData.flightState, 1);
+}
+
