@@ -1,3 +1,5 @@
 .vscode
 build/**
 managed_components/**
+main/prototype_main/build/**
+

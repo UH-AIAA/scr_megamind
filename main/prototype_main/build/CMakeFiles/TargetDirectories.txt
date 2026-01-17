@@ -1,5 +1,5 @@
-C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/PrototypeMain_lib.dir
-C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/PrototypeMain_test.dir
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/prototypeMain_lib.dir
+C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/prototypeMain_test.dir
 C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/RUN_TESTS.dir
 C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/INSTALL.dir
 C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/CMakeFiles/ALL_BUILD.dir

@@ -1,5 +1,5 @@
-libdir=C:/Program Files (x86)/PrototypeMain/lib
-includedir=C:/Program Files (x86)/PrototypeMain/include
+libdir=C:/Program Files (x86)/prototypeMain/lib
+includedir=C:/Program Files (x86)/prototypeMain/include
 
 Name: gmock
 Description: GoogleMock (without main() function)

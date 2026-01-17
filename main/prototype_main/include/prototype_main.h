@@ -4,6 +4,9 @@
 /// Hardware Pins import
 #include "Pins.h"
 
+#include <stdio.h>
+#include <bitset>
+
 /// @brief 
 /*      
         1. Calibrated Data struct
@@ -54,5 +57,8 @@ void Core1_BNO_task(void *pvParameter);
 void Core1_GPS_task(void *pvParameter);
 void Core1_SD_task(void *pvParameter);
 void Core1_Lora_task(void *pvParameter);
+
+void ADXLIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
+void LSMIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
 
 #endif

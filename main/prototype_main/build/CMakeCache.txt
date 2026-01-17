@@ -116,7 +116,7 @@ CMAKE_INSTALL_MANDIR:PATH=
 CMAKE_INSTALL_OLDINCLUDEDIR:PATH=/usr/include
 
 //Install path prefix, prepended onto install directories.
-CMAKE_INSTALL_PREFIX:PATH=C:/Program Files (x86)/PrototypeMain
+CMAKE_INSTALL_PREFIX:PATH=C:/Program Files (x86)/prototypeMain
 
 //Run-time variable data (LOCALSTATEDIR/run)
 CMAKE_INSTALL_RUNSTATEDIR:PATH=
@@ -163,7 +163,7 @@ CMAKE_PROJECT_DESCRIPTION:STATIC=
 CMAKE_PROJECT_HOMEPAGE_URL:STATIC=
 
 //Value Computed by CMake
-CMAKE_PROJECT_NAME:STATIC=PrototypeMain
+CMAKE_PROJECT_NAME:STATIC=prototypeMain
 
 //Value Computed by CMake
 CMAKE_PROJECT_VERSION:STATIC=1.16.0
@@ -260,15 +260,6 @@ GTEST_HAS_ABSL:BOOL=OFF
 INSTALL_GTEST:BOOL=ON
 
 //Value Computed by CMake
-PrototypeMain_BINARY_DIR:STATIC=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build
-
-//Value Computed by CMake
-PrototypeMain_IS_TOP_LEVEL:STATIC=ON
-
-//Value Computed by CMake
-PrototypeMain_SOURCE_DIR:STATIC=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main
-
-//Value Computed by CMake
 gmock_BINARY_DIR:STATIC=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/googletest_build/googlemock
 
 //Value Computed by CMake
@@ -313,6 +304,15 @@ gtest_force_shared_crt:BOOL=OFF
 
 //Build gtest with internal symbols hidden in shared libraries.
 gtest_hide_internal_symbols:BOOL=OFF
+
+//Value Computed by CMake
+prototypeMain_BINARY_DIR:STATIC=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build
+
+//Value Computed by CMake
+prototypeMain_IS_TOP_LEVEL:STATIC=ON
+
+//Value Computed by CMake
+prototypeMain_SOURCE_DIR:STATIC=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main
 
 
 ########################
@@ -486,7 +486,7 @@ CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
 //Details about finding Threads
 FIND_PACKAGE_MESSAGE_DETAILS_Threads:INTERNAL=[TRUE][v()]
 //CMAKE_INSTALL_PREFIX during last run
-_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=C:/Program Files (x86)/PrototypeMain
+_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=C:/Program Files (x86)/prototypeMain
 cmake_package_name:INTERNAL=GTest
 generated_dir:INTERNAL=C:/Users/phamt/Downloads/scr_megamind/main/prototype_main/build/googletest_build/googletest/generated
 //ADVANCED property for variable: gmock_build_tests

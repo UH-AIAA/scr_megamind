@@ -1,5 +1,7 @@
-#include <stdio.h>
-#include <bitset>
+
+#include "../include/prototype_main.h"
+#include "../constants/Const.h"
+#include "Arduino.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -8,7 +10,6 @@
 
 /// SPI imports, I^2C, and UART Imports
 #include "SPI.h"
-#include "Arduino.h"
 
 /// Library Import
 #include "Adafruit_BMP5xx.h"
@@ -18,12 +19,6 @@
 #include "Adafruit_GPS.h"
 #include "LoRa.h"
 #include "SD.h"
-
-#include "prototype_main/include/prototype_main.h"
-
-/// Define frequency Lora + SD
-#define LORA_FREQ 915E6 /// 915MHz frequency for Lora
-#define SD_RATE 20E6    /// 20MHz rate for SD 
 
 /// Debug control 
 #define DEBUG
@@ -60,9 +55,9 @@ SemaphoreHandle_t gI2cMutex;
 bool gHasSD = false;
 
 // TODO: [NS] does this need to be static?
-constexpr uint8_t MAX_GPS_BYTES_PER_LOOP = 64;  
+
 uint32_t loraCounter = 0;
-constexpr uint8_t GPS_TIMEOUT = 200;
+
 
 /// @brief: Constant for state machine
 /*
@@ -95,24 +90,7 @@ constexpr uint8_t GPS_TIMEOUT = 200;
                                         Noise threshold = Multiplier factor * standard deviation
 */
 // TODO: [NS] think about making these #define 
-constexpr uint8_t ACCEL_LAUNCH_G = 2; 
-constexpr float GRAVITY_FORCE = 9.80665;
-constexpr float JUNO_MAX_SPEED = 301.483;
-constexpr uint8_t REQ_COUNT_STATE_CHANGE = 3;
-constexpr float BMP_DATA_RATE = 0.0355;
-constexpr float BMP_STANDARD_DEVIATION = 0.07594;
-constexpr uint8_t BMP_NOISE_MULTIPLIER = 3;
-constexpr uint8_t BMP_DESCEND_THRESHOLD = 20;
-constexpr float ASCEND_THRESHOLD = GRAVITY_FORCE * ACCEL_LAUNCH_G;
-constexpr float BMP_STEP_MAX = JUNO_MAX_SPEED * BMP_DATA_RATE;
-constexpr float BMP_NOISE_THRESHOLD = BMP_STANDARD_DEVIATION * BMP_NOISE_MULTIPLIER;
-constexpr uint8_t BMP_LAND_THRESHOLD = 41;
-constexpr float ADXL_MAGNITUDE_STANDARD_DEVIATION = 0.698823;
-constexpr float LSM_MAGNITUDE_STANDARD_DEVIATION = 0.0005284;
-constexpr float LAND_NOISE_MULTIPLIER = 3.5;
-constexpr float ADXL_LAND_THRESHOLD = ADXL_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
-constexpr float LSM_LAND_THRESHOLD = LSM_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
-constexpr uint16_t LAND_COUNTER_MAX = 300;
+
 
 /// @brief: Helper variables for state machine
 /*
@@ -148,7 +126,7 @@ uint16_t land_counter = 0;
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
 */
 // TODO: [NS] same comment about static
-constexpr uint8_t ADXL_SAMPLES_MAX = 20; 
+
 float adxl_accel_x_mean = 0.0;
 float adxl_accel_y_mean = 0.0;
 float adxl_accel_z_mean = 0.0;
@@ -166,7 +144,7 @@ bool adxl_bias_mean_founded = false;
     lsm_accel_magnitude:           Magnitude of LSM data after calibrated
 */
 // TODO: [NS] same comment about static
-constexpr uint8_t LSM_SAMPLES_MAX = 20; 
+
 float lsm_accel_x_mean = 0.0;
 float lsm_accel_y_mean = 0.0;
 float lsm_accel_z_mean = 0.0;
@@ -181,7 +159,7 @@ bool lsm_bias_mean_founded = false;
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
 */
 // TODO: [NS] same comment about static
-constexpr uint8_t BMP_SAMPLES_MAX = 20;
+
 float bmp_altitude_mean = 0.0;
 uint8_t bmp_bias_samples_count = 0; 
 bool bmp_bias_mean_founded = false; 
@@ -457,26 +435,9 @@ void Core0_stateMachine(void *pvParameter){
                     printf("STATE IDLE--------------------------\n");
                 #endif
                 if (gOutputData.adxl_ok) { /// Check if ADXL ok to use
-                    if (gMagnitudeData.adxl_accel_magnitude > ASCEND_THRESHOLD) { /// Check if ADXL magnitude > ascent threshold
-                        counter_state_change++; /// Data is valid -> Increase counter
-                        if (counter_state_change >= REQ_COUNT_STATE_CHANGE){ /// If counter is enough -> valid state change condition
-                            gOutputData.flightState = 1; /// Change state from IDLE to ASCEND
-                            counter_state_change = 0; /// Reset counter to reuse in next state
-                        } 
-                    } else {
-                        counter_state_change = 0; /// Reset counter to avoid bad data iterations
-                    }
+                    ADXLIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
                 } else if (gOutputData.lsm_ok) { /// If ADXL fails and LSM ok to use
-                    if (gMagnitudeData.lsm_accel_magnitude > ASCEND_THRESHOLD) { /// Check if LSM magnitude > ascent threshold
-                        counter_state_change++; /// Data is valid -> Increase counter
-                        if (counter_state_change >= REQ_COUNT_STATE_CHANGE) { /// If counter is enough -> valid state change condition
-                            gOutputData.flightState = 1; /// Change state from IDLE to ASCEND
-                            bmp_peak_altitude = gOutputData.bmp_alt; /// Peak = Current altitude to guarantee peak start correctly on next state
-                            counter_state_change = 0; // Reset counter to reuse in next state
-                        }
-                    } else {
-                        counter_state_change = 0; /// Reset counter to avoid bad data iterations
-                    }
+                    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
                 } else {
                     counter_state_change = 0; /// Reset counter to avoid bad data iterations from both sensors
                 }
