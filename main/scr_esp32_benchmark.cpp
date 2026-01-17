@@ -67,6 +67,11 @@ Adafruit_GPS GPS(&Wire);
 // SPIClass SPI2(HSPI);
 File sdData;
 
+//SPI mutex
+static SemaphoreHandle_t sensor_spi_mutex;
+
+
+
 void init_spi() {
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
@@ -122,8 +127,11 @@ extern "C" void app_main()
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
 
-    // create launch task
-    xTaskCreate(
+    // initialize Mutex
+    sensor_spi_mutex = xSemaphoreCreateMutex();
+    
+    // sample task for your convenience
+/*    xTaskCreate(
         MegaMind_LAUNCH,    // [in] function pointer
         "MegaMind_LAUNCH",  // [in] debug name, leave same as function name plz
         50000,              // [in] function stack frame size (bytes),
@@ -131,19 +139,16 @@ extern "C" void app_main()
         2,                  // [in] task prioirity
         NULL                // [in] task handle (leave null)
     );
-}
-
-// main RTOS entry point, trying to start arduino spi in app_main
-// causes RTOS infrastructure problems bc ESP + Arduino is shitty
-void MegaMind_LAUNCH(void *pvParameter) {
+*/
     // create tasks!
-    xTaskCreate(
+    xTaskCreatePinnedToCore(
         GPS_task,
         "GPS Task",
         5000,
         NULL,
         3,
-        NULL
+        NULL,
+        1
     );
     
     xTaskCreatePinnedToCore(
@@ -151,7 +156,7 @@ void MegaMind_LAUNCH(void *pvParameter) {
         "ADXL_task",
         5000,
         NULL,
-        1,
+        5,
         NULL,
         0
     );
@@ -161,7 +166,7 @@ void MegaMind_LAUNCH(void *pvParameter) {
         "BNO_task",
         5000,
         NULL,
-        1,
+        2,
         NULL,
         0
     );
@@ -171,7 +176,7 @@ void MegaMind_LAUNCH(void *pvParameter) {
         "LSM_task",
         5000,
         NULL,
-        1,
+        3,
         NULL,
         0
     );
@@ -181,17 +186,13 @@ void MegaMind_LAUNCH(void *pvParameter) {
         "BMP_task",
         5000,
         NULL,
-        1,
+        4,
         NULL,
         0
     );
-
-    // delete task after it starts everything
-    vTaskDelete(NULL);
 }
 
 void GPS_task(void *pvParameter) {
-
     while(true){
         uint32_t startms = millis();
         uint32_t timeout = startms + 200;
@@ -235,57 +236,60 @@ void GPS_task(void *pvParameter) {
 }
 
 void ADXL_task(void *pvParameter) {
-
     while(1) {
-    //ADXL already initialized in previous code?
-        //check ADXL connection and yield to other tasks if connection bad
-        uint32_t startTime = millis();
-        //Taking the time since activation of sensor
-        TickType_t uptime = xTaskGetTickCount();
+        // attempt to take mutex, code inside blocked until mutex is released
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-        sensors_event_t event;
-        //stores data from the sensor into the sensor event variable "accelration"
-        if(!ADXL.getEvent(&event)) {
-            taskYIELD();
+            // gather what time the function started
+            uint32_t startTime = millis();
+            TickType_t uptime = xTaskGetTickCount();
+    
+            sensors_event_t event;
+    
+            // if read operation fails, start task over:
+            if(!ADXL.getEvent(&event)) {
+                xSemaphoreGive(sensor_spi_mutex);
+                vTaskDelay(1);  // ends task, not eligible to be ran for another tick
+            }
+
+            uint32_t endTime = millis();
+    
+            #ifdef DEBUG
+                printf("ADXL Uptime: %lu [ms]\n",uptime);
+                //Display the results (acceleration is measured in m/s^2)
+    
+                printf("X: %f [m/s^2]\n",event.acceleration.x);
+                printf("Y: %f [m/s^2]\n",event.acceleration.y);
+                printf("Z: %f [m/s^2]\n",event.acceleration.z);
+                printf("Elapsed Time: %li\n\n", endTime - startTime);
+            #endif
+    
+            // gives the mutex back
+            xSemaphoreGive(sensor_spi_mutex);
         }
-
-        uint32_t endTime = millis();
-
-        #ifdef DEBUG
-            printf("ADXL Uptime: %lu [ms]\n",uptime);
-            //Display the results (acceleration is measured in m/s^2)
-
-            printf("X: %f [m/s^2]\n",event.acceleration.x);
-            printf("Y: %f [m/s^2]\n",event.acceleration.y);
-            printf("Z: %f [m/s^2]\n",event.acceleration.z);
-            printf("Elapsed Time: %li\n\n", endTime - startTime);
-        #endif
-
-        //I believe the delay function in comment below is for arduino
-        //delay(500);
-        //delay 1 tick
-        vTaskDelay(pdMS_TO_TICKS(1));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
 void BNO_task(void *pvParameter) {
     while (1) {
-        // printf("BNO Task Called!\n");
         sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
 
+        // if we can't get BNO data, end task early and schedule again after 1 tick
         if (!BNO.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
-            taskYIELD();
+            vTaskDelay(1);
         }
         if (!BNO.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE)) {
-            taskYIELD();
+            vTaskDelay(1);
         }
         if (!BNO.getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER)) {
-            taskYIELD();
+            vTaskDelay(1);
         }
         if (!BNO.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
-            taskYIELD();
+            vTaskDelay(1);
         }
         
+        // gather function start time
         uint32_t startTime = millis();
         TickType_t uptime = xTaskGetTickCount();
         
@@ -310,45 +314,50 @@ void BNO_task(void *pvParameter) {
 
         #endif
 
-        vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
+        // vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
+        vTaskDelay(pdMS_TO_TICKS(20));
+
     }
 }
 
 void LSM_task(void *pvParameter) {
     while (1) {
-        TickType_t uptime = xTaskGetTickCount();
+        // attempts to retrieve mutex
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-        uint32_t startTime = millis();
-
-        //Sensor events
-        sensors_event_t accel;
-        sensors_event_t gyro;
-        sensors_event_t temp;
-
-        //event to get data
-        if(!LSM.getEvent(&accel, &gyro, &temp)) {
-            taskYIELD();
+            TickType_t uptime = xTaskGetTickCount();
+            uint32_t startTime = millis();
+    
+            //Sensor events
+            sensors_event_t accel;
+            sensors_event_t gyro;
+            sensors_event_t temp;
+    
+            // if LSM read fails, return mutex, and schedule task again after 1 tick
+            if(!LSM.getEvent(&accel, &gyro, &temp)) {
+                xSemaphoreGive(sensor_spi_mutex);
+                vTaskDelay(1);
+            }
+    
+            //data printing 
+            #ifdef DEBUG
+                printf("LSM Ticktime: %lu [ms]\n", uptime);
+                printf("X Acceleration: %f [m/s^2]\n", accel.acceleration.x);
+                printf("Y Acceleration: %f [m/s^2]\n", accel.acceleration.y);
+                printf("Z Acceleration: %f [m/s^2]\n", accel.acceleration.z);
+                printf("X Gyro: %f [idk]\n",gyro.gyro.x);
+                printf("Y Gyro: %f [idk]\n",gyro.gyro.y);
+                printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
+                // printf("Temperature: %f [deg C]\n",temp);
+                uint32_t endTime = millis();
+                printf("Elapsed Time: %li\n\n", endTime - startTime);
+    
+            #endif
+            
+            // give back mutex
+            xSemaphoreGive(sensor_spi_mutex);
         }
-
-        //data printing 
-
-        #ifdef DEBUG
-            printf("LSM Ticktime: %lu [ms]\n", uptime);
-            printf("X Acceleration: %f [m/s^2]\n", accel.acceleration.x);
-            printf("Y Acceleration: %f [m/s^2]\n", accel.acceleration.y);
-            printf("Z Acceleration: %f [m/s^2]\n", accel.acceleration.z);
-            printf("X Gyro: %f [idk]\n",gyro.gyro.x);
-            printf("Y Gyro: %f [idk]\n",gyro.gyro.y);
-            printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
-            // printf("Temperature: %f [deg C]\n",temp);
-            uint32_t endTime = millis();
-            printf("Elapsed Time: %li\n\n", endTime - startTime);
-
-        #endif
-        
-        //delay funct 
-        //delay (500), 1 tick
-        vTaskDelay(pdMS_TO_TICKS(5));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
@@ -358,36 +367,40 @@ void BMP_task(void *pvParameter) {
     static TickType_t upTime;
     static uint32_t startTime, endTime;
     while(1) {
-        // time systea
-        startTime = millis();
-        upTime = xTaskGetTickCount();
-        bmp_up = BMP.performReading();
+        // attempts to retrieve mutex
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-        if(bmp_up) {
-            bmp_temp = BMP.temperature;
-            bmp_press = BMP.pressure;
-            bmp_alt = BMP.readAltitude(1013.25f);
-
-            // TODO: [NS] add calibration
-
-            #ifdef DEBUG
-                printf("BMP reporting OK!\n");
-                printf("BMP Temp: %f\n", bmp_temp);
-                printf("BMP Press: %f\n", bmp_press);
-                printf("BMP Alt: %f\n", bmp_alt);
-                printf("Uptime [ms/ticks]: %lu\n\n", upTime);
-                endTime = millis();
-                printf("Elapsed Time: %li\n\n\n", endTime - startTime);
-            #endif
-            vTaskDelay(pdMS_TO_TICKS(10));  // TODO: [NS] optimize timing
-        } else {
-            #ifdef DEBUG
-                printf("BMP reporting NOT OK!\n\n");
-            #endif
+            // time system
+            startTime = millis();
+            upTime = xTaskGetTickCount();
+            bmp_up = BMP.performReading();
+    
+            if(bmp_up) {
+                bmp_temp = BMP.temperature;
+                bmp_press = BMP.pressure;
+                bmp_alt = BMP.readAltitude(1013.25f);
+    
+                // TODO: [NS] add calibration
+    
+                #ifdef DEBUG
+                    printf("BMP reporting OK!\n");
+                    printf("BMP Temp: %f\n", bmp_temp);
+                    printf("BMP Press: %f\n", bmp_press);
+                    printf("BMP Alt: %f\n", bmp_alt);
+                    printf("Uptime [ms/ticks]: %lu\n\n", upTime);
+                    endTime = millis();
+                    printf("Elapsed Time: %li\n\n\n", endTime - startTime);
+                #endif
+            } else {
+                #ifdef DEBUG
+                    printf("BMP reporting NOT OK!\n\n");
+                #endif
+            }
+    
+            xSemaphoreGive(sensor_spi_mutex);//gives back mutex
+    
         }
 
-    // cleanup:
-    //     vTaskDelay(pdMS_TO_TICKS(10));
-    //     taskYIELD();
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
