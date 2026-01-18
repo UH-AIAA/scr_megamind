@@ -57,6 +57,7 @@
 
 // Debug control definitions
 #define DEBUG
+#define MAX_SENSOR_QUEUE_SIZE (50)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
 Adafruit_BMP5xx BMP;
@@ -70,6 +71,20 @@ File sdData;
 //SPI mutex
 static SemaphoreHandle_t sensor_spi_mutex;
 
+// SENSOR DATA TYPES
+typedef struct ADXLMessage {
+    uint32_t time;          // ms since start for now (what we're already doing), maybe move to unixtime/RTC later
+    float acceleration[3];  // acceleration data (x, y, z);
+} ADXLMessage_t;
+
+// SENSOR DATA STORAGE QUEUES
+// GDQ == Global Data Queue
+typedef struct GDQ {
+    QueueHandle_t ADXL;
+    // add more sensors here
+} GDQ_t;
+
+GDQ_t GDQ;
 
 
 void init_spi() {
@@ -103,6 +118,12 @@ void init_I2C() {
     BNO.begin();
 }
 
+// init queues
+void init_GDQ() {
+    GDQ.ADXL = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(ADXLMessage_t));
+    // do for other sensors here
+}
+
 // TODO: [NS/LF] figure out how to get these in another file to avoid polluting main
 void ADXL_task(void *pvParameter);
 void BNO_task(void *pvParameter);
@@ -121,8 +142,10 @@ extern "C" void app_main()
     init_spi();
 
     // init I^2C bus
-    vTaskDelay(pdMS_TO_TICKS(1));
     init_I2C();
+
+    // init GDQ
+    init_GDQ();
 
     // dump GPIO config
     gpio_dump_io_configuration(stdout, SOC_GPIO_VALID_GPIO_MASK);
@@ -236,15 +259,18 @@ void GPS_task(void *pvParameter) {
 }
 
 void ADXL_task(void *pvParameter) {
+    // variable declarations
+    ADXLMessage_t currentMessage = {0};
+    sensors_event_t event;
+    uint32_t startTime, endTime;
+    TickType_t uptime;
     while(1) {
         // attempt to take mutex, code inside blocked until mutex is released
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // gather what time the function started
-            uint32_t startTime = millis();
-            TickType_t uptime = xTaskGetTickCount();
-    
-            sensors_event_t event;
+            startTime = millis();
+            uptime = xTaskGetTickCount();
     
             // if read operation fails, start task over:
             if(!ADXL.getEvent(&event)) {
@@ -252,7 +278,18 @@ void ADXL_task(void *pvParameter) {
                 vTaskDelay(1);  // ends task, not eligible to be ran for another tick
             }
 
-            uint32_t endTime = millis();
+            // save off our sensor data, add it to queue
+            currentMessage.acceleration[0] = event.acceleration.x;
+            currentMessage.acceleration[1] = event.acceleration.y;
+            currentMessage.acceleration[2] = event.acceleration.z;
+
+            // zero wait time means data is dropped if queue is full,
+            // i think that's okay! hopefully queue shouldn't be full
+            xQueueSend(GDQ.ADXL, &currentMessage, 0);
+
+            // write data to queue
+
+            endTime = millis();
     
             #ifdef DEBUG
                 printf("ADXL Uptime: %lu [ms]\n",uptime);
