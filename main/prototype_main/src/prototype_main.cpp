@@ -53,7 +53,6 @@ SemaphoreHandle_t gSpiMutex_BAL;
 SemaphoreHandle_t gSpiMutex_SL; 
 SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
-
 uint32_t loraCounter = 0;
 
 /// @brief: Helper variables for state machine
