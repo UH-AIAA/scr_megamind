@@ -95,7 +95,6 @@ bool adxl_bias_mean_founded = false;
 
 /// @brief Helper variables for LSM calibration
 /*
-
     lsm_accel_x_mean:              Mean of raw LSM acceleration x data (Bias)
     lsm_accel_y_mean:              Mean of raw LSM acceleration y data (Bias)
     lsm_accel_z_mean:              Mean of raw LSM acceleration z data (Bias)
@@ -111,7 +110,6 @@ bool lsm_bias_mean_founded = false;
 
 /// @brief Helper variables for BMP calibration
 /*
-
     bmp_altitude_mean:             Mean of raw BMP acceleration x data (Bias)
     bmp_bias_samples_count:        Counter to check how many data iteration is sampled
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
