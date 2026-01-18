@@ -15,6 +15,7 @@ endif()
 # Compile logic for testing (library)
 add_library(prototypeMain_lib
   src/state_logic.cpp
+  src/calibration_logic.cpp
 )
 
 # Add root dependecies
@@ -35,7 +36,8 @@ enable_testing()
 
 # Test executable
 add_executable(prototypeMain_test
-  test/test_prototype_main.cpp
+  test/test_state_logic.cpp
+  test/test_calibration_logic.cpp
 )
 
 # Linking test and libraries with GTest functions

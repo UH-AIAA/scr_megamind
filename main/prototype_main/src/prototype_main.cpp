@@ -33,6 +33,7 @@
 */
 OutputData_t    gOutputData; 
 MagnitudeData_t gMagnitudeData;
+ADXLCalibrate_t gADXLCalibrateVars;
 sensors_event_t gEventADXL; 
 sensors_event_t gEventLSM_accel, gEventLSM_gyro, gEventLSM_temp; 
 sensors_event_t gOrientation, gAngVelocity, gMagnetometer, gAccelerometer; 
@@ -77,21 +78,6 @@ bool low_altitude = false;
 bool low_acceleration = false;
 uint16_t land_counter = 0;
 
-/// @brief Helper variables for ADXL calibration
-/*
-    adxl_accel_x_mean:              Mean of raw ADXL acceleration x data (Bias)
-    adxl_accel_y_mean:              Mean of raw ADXL acceleration y data (Bias)
-    adxl_accel_z_mean:              Mean of raw ADXL acceleration z data (Bias)
-    adxl_bias_samples_count:        Counter to check how many data iteration is sampled
-    adxl_bias_mean_founded:         Flag to check if ADXL bias mean is founded
-    adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
-*/
-
-float adxl_accel_x_mean = 0.0;
-float adxl_accel_y_mean = 0.0;
-float adxl_accel_z_mean = 0.0;
-uint8_t adxl_bias_samples_count = 0; 
-bool adxl_bias_mean_founded = false;    
 
 /// @brief Helper variables for LSM calibration
 /*
@@ -266,32 +252,7 @@ void Core0_ADXL_task(void *pvParameter) {
                 gOutputData.adxl_acc_x = gEventADXL.acceleration.x;
                 gOutputData.adxl_acc_y = gEventADXL.acceleration.y;
                 gOutputData.adxl_acc_z = gEventADXL.acceleration.z;
-
-                // TODO: [NS/Leads] discuss moving to powerup sequence
-                /// Find bias of ADXL acceleration in x,y,z
-                if (!adxl_bias_mean_founded){
-                    if (adxl_bias_samples_count < ADXL_SAMPLES_MAX){
-                        adxl_accel_x_mean += gOutputData.adxl_acc_x;
-                        adxl_accel_y_mean += gOutputData.adxl_acc_y;
-                        adxl_accel_z_mean += gOutputData.adxl_acc_z;
-                        adxl_bias_samples_count++;
-                    } else {
-                        adxl_accel_x_mean = adxl_accel_x_mean / ADXL_SAMPLES_MAX;
-                        adxl_accel_y_mean = adxl_accel_y_mean / ADXL_SAMPLES_MAX;
-                        adxl_accel_z_mean = adxl_accel_z_mean / ADXL_SAMPLES_MAX;
-                        adxl_bias_mean_founded = true;
-                    }
-                } else {
-                    /// Calibrate ADXL acceleration x,y,z from x,y,z bias
-                    gOutputData.adxl_acc_x = gOutputData.adxl_acc_x - adxl_accel_x_mean;
-                    gOutputData.adxl_acc_y = gOutputData.adxl_acc_y - adxl_accel_y_mean;
-                    gOutputData.adxl_acc_z = gOutputData.adxl_acc_z - adxl_accel_z_mean;
-                    // TODO: [NS/Leads] talk about place of this in state machine
-                    /// Calculate acceleration magnitude
-                    gMagnitudeData.adxl_accel_magnitude = sqrtf(gOutputData.adxl_acc_x*gOutputData.adxl_acc_x + 
-                                                 gOutputData.adxl_acc_y*gOutputData.adxl_acc_y + 
-                                                 gOutputData.adxl_acc_z*gOutputData.adxl_acc_z);
-                }
+                ADXLCalibrate(gADXLCalibrateVars, gMagnitudeData, gOutputData);
 
                 #ifdef DEBUG
                         printf("ADXL Up Time: %lu [ms]\n", (unsigned long)upTime);

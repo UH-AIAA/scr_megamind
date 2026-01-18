@@ -1,4 +1,4 @@
-idf_component_register(SRCS "prototype_main/src/prototype_main.cpp" "prototype_main/src/state_logic.cpp" 
+idf_component_register(SRCS "prototype_main/src/prototype_main.cpp" "prototype_main/src/state_logic.cpp" "prototype_main/src/calibration_logic.cpp" 
                     INCLUDE_DIRS "." 
                     REQUIRES 
                         arduino

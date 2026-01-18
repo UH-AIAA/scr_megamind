@@ -1,3 +1,6 @@
+#ifndef CONST_H
+#define CONST_H
+
 #include <stdint.h>
 
 /// Define frequency Lora + SD
@@ -67,3 +70,5 @@ const float LAND_NOISE_MULTIPLIER = 3.5;
 const float ADXL_LAND_THRESHOLD = ADXL_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
 const float LSM_LAND_THRESHOLD = LSM_MAGNITUDE_STANDARD_DEVIATION * LAND_NOISE_MULTIPLIER;
 const uint16_t LAND_COUNTER_MAX = 300;
+
+#endif

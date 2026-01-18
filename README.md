@@ -41,3 +41,4 @@
   - If update test(s), make sure to rebuild test(s) using previously mentioned methods for preventing stale reports
   - If currently in source folder, do `cmake --build build --target coverage`
   - Coverage reports are in **build/coverage/index.html**
+  - Shortcut: At the root directory, do `rm build ; mkdir build ; cd build ; cmake .. ; cd .. ; cmake --build build --target coverage` to quickly rebuild everything and generate reports

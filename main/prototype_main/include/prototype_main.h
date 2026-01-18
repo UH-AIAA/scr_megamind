@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <bitset>
+#include <cmath>
 
 /// @brief 
 /*      
@@ -43,22 +44,91 @@ typedef struct{
       float bmp_apogee_record = 0;
 } OutputData_t; 
 
+/// @brief Magnitude data struct
+/*
+    adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
+    lsm_accel_magnitude:            Magnitude of LSM data after calibrated
+*/
 typedef struct{
       float adxl_accel_magnitude = 0.0; 
       float lsm_accel_magnitude = 0.0; 
 } MagnitudeData_t;
 
+/// @brief Helper variables for ADXL calibration
+/*
+    adxl_accel_x_mean:              Mean of raw ADXL acceleration x data (Bias)
+    adxl_accel_y_mean:              Mean of raw ADXL acceleration y data (Bias)
+    adxl_accel_z_mean:              Mean of raw ADXL acceleration z data (Bias)
+    adxl_bias_samples_count:        Counter to check how many data iteration is sampled
+    adxl_bias_mean_founded:         Flag to check if ADXL bias mean is founded
+    adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
+*/
+typedef struct {
+    float adxl_accel_x_mean = 0.0;
+    float adxl_accel_y_mean = 0.0;
+    float adxl_accel_z_mean = 0.0;
+    uint8_t adxl_bias_samples_count = 0; 
+    bool adxl_bias_mean_founded = false;    
+} ADXLCalibrate_t;
+
+/// @brief                   BMP task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core0_BMP_task(void *pvParameter);
+
+/// @brief                   ADXL task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core0_ADXL_task(void *pvParameter);
+
+/// @brief                   LSM task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core0_LSM_task(void *pvParameter);
+
+/// @brief                   State Machine task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core0_stateMachine(void *pvParameter);
 
+/// @brief                   BNO task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core1_BNO_task(void *pvParameter);
+
+/// @brief GPS task declaration
+/// @param pvParameter default FreeRTOS parameter
 void Core1_GPS_task(void *pvParameter);
+
+/// @brief                   SD task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core1_SD_task(void *pvParameter);
+
+/// @brief                   Lora task declaration
+/// @param pvParameter       Default FreeRTOS parameter
 void Core1_Lora_task(void *pvParameter);
 
+/// @brief                   1. Find bias of ADXL acceleration in x,y,z
+///                          2. Calibrate data
+///                          3. Calculate magnitude
+/// @param ADXLCalibrateVars ADXL helper variables struct
+/// @param MagnitudeData     Magnitude data struct
+/// @param OutputData        General data struct
+void ADXLCalibrate(ADXLCalibrate_t& ADXLCalibrateVars, MagnitudeData_t& MagnitudeData, OutputData_t& OutputData);
+
+/// @brief                   1. Check ADXL magnitude against ascent threshold
+///                          2. Data is valid -> Increase counter
+///                          3. If counter suffices -> valid state change condition ->  Change state from IDLE to ASCEND -> Record current peak -> reset counter for next state
+///                             If counter not suffices -> Reset counter
+/// @param OutputData        General data struct
+/// @param MagnitudeData     Magnitude data struct
+/// @param counter           State change counter 
+/// @param peakAltitude      Peak altitude variable
 void ADXLIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
+
+/// @brief                   1. Check LSM magnitude against ascent threshold
+///                          2. Data is valid -> Increase counter
+///                          3. If counter suffices -> valid state change condition ->  Change state from IDLE to ASCEND -> Record current peak -> reset counter for next state
+///                             If counter not suffices -> Reset counter
+/// @param OutputData        General data struct
+/// @param MagnitudeData     Magnitude data struct
+/// @param counter           State change counter 
+/// @param peakAltitude      Peak altitude variable
 void LSMIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
 
 #endif
