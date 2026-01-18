@@ -10,7 +10,7 @@
 /// SD+LoRa SPI Init
 #define VSPI_SCLK_PIN 18 /// CLK
 #define VSPI_MISO_PIN 17 /// SDO
-#define VSPI_MOSI_PIN 16 /// SDO
+#define VSPI_MOSI_PIN 16 /// SDA
 
 /// I2C Init
 #define I2C_SDA 8

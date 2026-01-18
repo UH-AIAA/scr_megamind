@@ -31,3 +31,13 @@
   - Do `cmake --build .` This will create an executable in **build/Debug/example_test.exe**
   - Do `.\Debug\example_test.exe` to run test
   - Enjoy the green (or red) lines from your test!
+
+<br><br><br>
+# Using Coverage
+
+## Overview
+  - Guide to use OpenCppCoverage tool to track coverage of code needed to be tested
+## Setup Example
+  - If update test(s), make sure to rebuild test(s) using previously mentioned methods for preventing stale reports
+  - If currently in source folder, do `cmake --build build --target coverage`
+  - Coverage reports are in **build/coverage/index.html**

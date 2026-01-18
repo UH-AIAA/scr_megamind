@@ -45,7 +45,6 @@ imu::Quaternion gQuaternion;
     gSpiMutex_SL:                 SPI mutex for Sd + Lora
     gI2cMutex :                   I2C mutex for Bno + Gps
     gHasSD:                       Check for micro SD card
-    MAX_GPS_BYTES_PER_LOOP:       Capped amount of bytes permitted when reading GPS data (tune as needed)
     loraCounter:                  Counter to count data packets sended
 */
 uint32_t upTime;             
@@ -54,43 +53,7 @@ SemaphoreHandle_t gSpiMutex_SL;
 SemaphoreHandle_t gI2cMutex;    
 bool gHasSD = false;
 
-// TODO: [NS] does this need to be static?
-
 uint32_t loraCounter = 0;
-
-
-/// @brief: Constant for state machine
-/*
-    ACCEL_LAUNCH_G:                     G force multiplier for state change detection
-    GRAVITY_FORCE:                      Constant of gravity force on the Earth
-    JUNO_MAX_SPEED:                     Current max speed of Juno in m/s
-    REQ_COUNT_STATE_CHANGE:             Amount of check before state is allowed to change
-    BMP_DATA_RATE:                      Current data rate of BMP 581 in seconds
-    BMP_STANDARD_DEVIATION:             Sample standard deviation of 50 samples of BMP data
-    BMP_NOISE_MULTIPLIER:               Multiplier factor to guard actual physical change from noise (99.73%)
-    BMP_DESCEND_THRESHOLD:              Threshold describe the require distance between apogee to 
-                                            current altitude when rocket is going down to trigger state change
-    ASCEND_THRESHOLD:                   Threshold to allow ascend detection at 2g = 19.6 m/s^2
-    BMP_STEP_MAX:                       Maximum step in data of the BMP that is physically possible with its current tested rate of 28.57 [Hz]
-    BMP_NOISE_THRESHOLD:                Threshold to guard change in altitude from noise 
-    BMP_LAND_THRESHOLD:                 Threshold to determine if the rocket is landed based of the altitude. 
-                                            Average of launch site at Space Port is: 885 m
-                                            Highest altitude around 5 mile radius from launch site is: 922.6 m
-                                            Juno height is: 2.97 m
-                                            Land threshold = ceil(Alt_max - alt_avg_start + Juno's height)
-    ADXL_MAGNITUDE_STANDARD_DEVIATION:  Sample standard deviation of ADXL acceleration magnitude from 51 samples
-    LSM_MAGNITUDE_STANDARD_DEVIATION:   Sample standard deviation of LSM acceleration magnitude from 50 samples
-    LAND_NOISE_MULTIPLIER:              Multiplier factor to maximize noise + wind dragging the rocket when it is landed
-    ADXL_LAND_THRESHOLD:                Land threshold for ADXL acceleration magnitude. If magnitude < magnitude threshold -> ~landed
-    LSM_LAND_THRESHOLD:                 Land threshold for LSM acceleration magnitude. If magnitude < magnitude threshold -> ~landed
-    LAND_COUNTER_MAX:                   Fail safe constant if all sensors for state switching of landing fail. 
-                                        300 iteration is ~62.4 secs at rate of 4.81 [Hz] for state machine task to switch to land if all sensors fail
-
-    General formula used:               v = d/t, d = vt (Newton is proud of us)
-                                        Noise threshold = Multiplier factor * standard deviation
-*/
-// TODO: [NS] think about making these #define 
-
 
 /// @brief: Helper variables for state machine
 /*
@@ -104,7 +67,6 @@ uint32_t loraCounter = 0;
     low_acceleration:               Flag to check if acceleration magnitude is low from ADXL/LSM
     land_counter:                   Counter for fail safe state machine landing mechanism if BMP,ADLX,LSM fail 
 */
-// TODO: [NS] does this also need to be static?
 uint8_t counter_state_change = 0;
 float bmp_previous_altitude = 0;
 bool bmp_previous_altitude_founded = false;
@@ -117,7 +79,6 @@ uint16_t land_counter = 0;
 
 /// @brief Helper variables for ADXL calibration
 /*
-    ADXL_SAMPLES_MAX:               Maximum data samples for calibration
     adxl_accel_x_mean:              Mean of raw ADXL acceleration x data (Bias)
     adxl_accel_y_mean:              Mean of raw ADXL acceleration y data (Bias)
     adxl_accel_z_mean:              Mean of raw ADXL acceleration z data (Bias)
@@ -125,7 +86,6 @@ uint16_t land_counter = 0;
     adxl_bias_mean_founded:         Flag to check if ADXL bias mean is founded
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
 */
-// TODO: [NS] same comment about static
 
 float adxl_accel_x_mean = 0.0;
 float adxl_accel_y_mean = 0.0;
@@ -135,7 +95,7 @@ bool adxl_bias_mean_founded = false;
 
 /// @brief Helper variables for LSM calibration
 /*
-    LSM_SAMPLES_MAX:               Maximum data samples for calibration
+
     lsm_accel_x_mean:              Mean of raw LSM acceleration x data (Bias)
     lsm_accel_y_mean:              Mean of raw LSM acceleration y data (Bias)
     lsm_accel_z_mean:              Mean of raw LSM acceleration z data (Bias)
@@ -143,8 +103,6 @@ bool adxl_bias_mean_founded = false;
     lsm_bias_mean_founded:         Flag to check if LSM bias mean is founded
     lsm_accel_magnitude:           Magnitude of LSM data after calibrated
 */
-// TODO: [NS] same comment about static
-
 float lsm_accel_x_mean = 0.0;
 float lsm_accel_y_mean = 0.0;
 float lsm_accel_z_mean = 0.0;
@@ -153,13 +111,11 @@ bool lsm_bias_mean_founded = false;
 
 /// @brief Helper variables for BMP calibration
 /*
-    BMP_SAMPLES_MAX:               Maximum data samples for calibration
+
     bmp_altitude_mean:             Mean of raw BMP acceleration x data (Bias)
     bmp_bias_samples_count:        Counter to check how many data iteration is sampled
     bmp_bias_mean_founded:         Flag to check if BMP bias mean is founded
 */
-// TODO: [NS] same comment about static
-
 float bmp_altitude_mean = 0.0;
 uint8_t bmp_bias_samples_count = 0; 
 bool bmp_bias_mean_founded = false; 
