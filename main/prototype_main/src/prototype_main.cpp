@@ -26,6 +26,7 @@
 /// @brief Object for sensors data retrieving
 /* 
     gOutputData:                   global Output object for all sensors
+    gMagnitudeData:                global Output object for ADXL/LSM magnitude
     gEventADXL :                   global output data for ADXL375
     gEventLSM_ :                   global output data for LSM 
     gOrientation to gAcceleromter: global output for BNO
@@ -85,7 +86,6 @@ uint16_t land_counter = 0;
     lsm_accel_z_mean:              Mean of raw LSM acceleration z data (Bias)
     lsm_bias_samples_count:        Counter to check how many data iteration is sampled
     lsm_bias_mean_founded:         Flag to check if LSM bias mean is founded
-    lsm_accel_magnitude:           Magnitude of LSM data after calibrated
 */
 float lsm_accel_x_mean = 0.0;
 float lsm_accel_y_mean = 0.0;
@@ -214,7 +214,7 @@ void Core0_BMP_task(void *pvParameter) {
                         if (fabsf(bmp_altitude_change) > BMP_STEP_MAX) {
                             bmp_altitude_change = 0;
                         } else {
-                            bmp_previous_altitude   = gOutputData.bmp_alt; 
+                            bmp_previous_altitude = gOutputData.bmp_alt; 
                         }
                     } else {
                         bmp_previous_altitude = gOutputData.bmp_alt;
@@ -349,35 +349,13 @@ void Core0_stateMachine(void *pvParameter){
                     printf("STATE IDLE--------------------------\n");
                 #endif
                 IdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
-                
                 // TODO: [NS/leads] talk about a counter reset condition
                 break;
             case 1: /// ASCEND
                 #ifdef DEBUG
                     printf("STATE ASCENDING---------------------\n");
                 #endif
-                if (gOutputData.bmp_ok) { /// If BMP is ok to use
-                    if (fabs(bmp_altitude_change) >= BMP_NOISE_THRESHOLD && fabs(bmp_altitude_change) <= BMP_STEP_MAX) { /// If Noise < altitude change < Max possible range means there is actual physical change
-                        if (gOutputData.bmp_alt > bmp_peak_altitude) { /// Check if current altitude > peak
-                            bmp_peak_altitude = gOutputData.bmp_alt; /// Update peak to current altitude
-                            counter_state_change = 0; /// Ensure is counter at 0
-                        } else {
-                            float drop_from_peak = bmp_peak_altitude - gOutputData.bmp_alt; /// Calculate difference between peak and current data
-                            if (drop_from_peak > BMP_DESCEND_THRESHOLD) { /// If difference is bigger than dropping threshold
-                                counter_state_change++; /// Data is valid -> Increase counter
-                                if (counter_state_change >= REQ_COUNT_STATE_CHANGE) { /// If counter is enough -> valid state change condition
-                                    gOutputData.flightState = 2; /// Change state from ASCEND to DESCEND
-                                    gOutputData.bmp_apogee_record = bmp_peak_altitude; /// Record Apogee to peak
-                                    counter_state_change = 0; /// Reset counter to use in next state
-                                }
-                            } else {
-                                counter_state_change = 0; /// Means difference is not bigger and data is invalid, then reset counter
-                            }
-                        }
-                    } else {
-                        counter_state_change = 0; /// Means altitude change is invalid, then reset counter and check again
-                    }  
-                }
+                AscendToDescend(gOutputData, bmp_altitude_change, bmp_peak_altitude, counter_state_change);
                 break;
             case 2: /// DESCEND
                 #ifdef DEBUG

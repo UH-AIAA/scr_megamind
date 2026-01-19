@@ -111,7 +111,7 @@ void Core1_Lora_task(void *pvParameter);
 /// @param OutputData        General data struct
 void ADXLCalibrate(ADXLCalibrate_t& ADXLCalibrateVars, MagnitudeData_t& MagnitudeData, OutputData_t& OutputData);
 
-/// @brief                   1. Check ADXL magnitude against ascent threshold
+/// @brief                   1. Check ADXL/LSM magnitude against ascent threshold
 ///                          2. Data is valid -> Increase counter
 ///                          3. If counter suffices -> valid state change condition ->  Change state from IDLE to ASCEND -> Record current peak -> reset counter for next state
 ///                             If counter not suffices -> Reset counter
@@ -119,18 +119,19 @@ void ADXLCalibrate(ADXLCalibrate_t& ADXLCalibrateVars, MagnitudeData_t& Magnitud
 /// @param MagnitudeData     Magnitude data struct
 /// @param counter           State change counter 
 /// @param peakAltitude      Peak altitude variable
-void ADXLIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
-
-/// @brief                   1. Check LSM magnitude against ascent threshold
-///                          2. Data is valid -> Increase counter
-///                          3. If counter suffices -> valid state change condition ->  Change state from IDLE to ASCEND -> Record current peak -> reset counter for next state
-///                             If counter not suffices -> Reset counter
-/// @param OutputData        General data struct
-/// @param MagnitudeData     Magnitude data struct
-/// @param counter           State change counter 
-/// @param peakAltitude      Peak altitude variable
-void LSMIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
-
 void IdleToAscend(OutputData_t& gOutputData, MagnitudeData_t& gMagnitudeData, uint8_t& counter, float& peakAltitude);
+
+/// @brief                   1. Check BMP altitude change against noise and biggest possible data
+///                          2. If in range -> Check current altitude > peak altitude recorded recently 
+///                             If not      -> Reset counter since data is invalid (random drop)
+///                          3. If bigger -> Record current altitude as new peak altitude and set counter 0 for safety
+///                                 If smaller -> Calculate distance between current alt vs peak
+///                                             If peak > BMP descend threshold -> increases counter -> once counter = require amount -> Change state to descend, record apogee, set counter to 0 for next state
+///                                             If peak < BMP descend threshold -> Reset counter since difference is not enough
+/// @param OutputData               General data struct
+/// @param bmp_altitude_change      BMP change in altitude
+/// @param bmp_peak_altitude        Variable to capture peak altitude
+/// @param counter                  State change counter
+void AscendToDescend(OutputData_t& OutputData, float& bmp_altitude_change, float& bmp_peak_altitude, uint8_t& counter);
 
 #endif

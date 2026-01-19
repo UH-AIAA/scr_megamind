@@ -2,6 +2,7 @@
 #include "../include/prototype_main.h"
 #include "../constants/Const.h"
 
+/// ----------------------IDLE to ASCEND test------------------///
 TEST(StateMachineTest, AdxlIdleToDescendOk) {
     OutputData_t OutputData;
     MagnitudeData_t MagnitudeData;
@@ -175,3 +176,66 @@ TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmMagnitudeSpike){
     EXPECT_EQ(counter_state_change, 0);
 }
 
+/// ----------------------Apogee/ASCEND to DESCEND test------------------///
+TEST(StateMachineTest, BMPUpdatePeakValidData){
+    OutputData_t OutputData;
+    float mock_bmp_altitude[3] = {5,11,16.5}; 
+    float mock_bmp_delta_alt[3] = {5,6,5.5};
+    float bmp_peak_altitude = 0;
+    uint8_t counter_state_change = 0;
+    OutputData.bmp_ok = true;
+    for (int i = 0; i < 3; i++) {
+        OutputData.bmp_alt = mock_bmp_altitude[i];
+        AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
+    }
+    EXPECT_EQ(bmp_peak_altitude, (float)16.5);
+    EXPECT_EQ(counter_state_change, 0);
+}
+
+TEST(StateMachineTest, BMPUpdatePeakInvalidData){
+    OutputData_t OutputData;
+    float mock_bmp_altitude[3] = {5,11,21.8}; 
+    float mock_bmp_delta_alt[3] = {5,6,10.8};
+    float bmp_peak_altitude = 0;
+    uint8_t counter_state_change = 0;
+    OutputData.bmp_ok = true;
+    for (int i = 0; i < 3; i++) {
+        OutputData.bmp_alt = mock_bmp_altitude[i];
+        AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
+    }
+    EXPECT_EQ(bmp_peak_altitude, (float)11);
+    EXPECT_EQ(counter_state_change, 0);
+}
+
+TEST(StateMachineTest, BMPStateChangeOkValidData){
+    OutputData_t OutputData;
+    float mock_bmp_altitude[15] = {10,20,30,40,50,60,70,80,90,95,85,75,65,55,50}; 
+    float mock_bmp_delta_alt[15] = {10,10,10,10,10,10,10,10,10,5,-10,-10,-10,-10,-5};
+    float bmp_peak_altitude = 0;
+    uint8_t counter_state_change = 0;
+    OutputData.bmp_ok = true;
+    for (int i = 0; i < 15; i++) {
+        OutputData.bmp_alt = mock_bmp_altitude[i];
+        AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
+    }
+    EXPECT_EQ(OutputData.bmp_apogee_record, (float)95);
+    EXPECT_EQ(OutputData.flightState, 2);
+    EXPECT_EQ(counter_state_change, 0);
+}
+
+TEST(StateMachineTest, BMPStateChangeFailInvalidDataDrop){
+    OutputData_t OutputData;
+    float mock_bmp_altitude[17] = {10,20,30,40,50,60,70,80,90,95,85,75,65,55,100,105}; 
+    float mock_bmp_delta_alt[17] = {10,10,10,10,10,10,10,10,10,5,-10,-10,-10,-10,45,5};
+    float bmp_peak_altitude = 0;
+    uint8_t counter_state_change = 0;
+    OutputData.flightState = 1;
+    OutputData.bmp_ok = true;
+    for (int i = 0; i < 17; i++) {
+        OutputData.bmp_alt = mock_bmp_altitude[i];
+        AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
+    }
+    EXPECT_EQ(OutputData.bmp_apogee_record, (float)0);
+    EXPECT_EQ(OutputData.flightState, 1);
+    EXPECT_EQ(counter_state_change, 0);
+}
