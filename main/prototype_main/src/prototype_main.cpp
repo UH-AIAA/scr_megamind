@@ -348,13 +348,8 @@ void Core0_stateMachine(void *pvParameter){
                 #ifdef DEBUG
                     printf("STATE IDLE--------------------------\n");
                 #endif
-                if (gOutputData.adxl_ok) { /// Check if ADXL ok to use
-                    ADXLIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
-                } else if (gOutputData.lsm_ok) { /// If ADXL fails and LSM ok to use
-                    LSMIdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
-                } else {
-                    counter_state_change = 0; /// Reset counter to avoid bad data iterations from both sensors
-                }
+                IdleToAscend(gOutputData, gMagnitudeData, counter_state_change, bmp_peak_altitude);
+                
                 // TODO: [NS/leads] talk about a counter reset condition
                 break;
             case 1: /// ASCEND

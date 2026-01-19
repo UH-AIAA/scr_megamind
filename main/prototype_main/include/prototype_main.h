@@ -131,4 +131,6 @@ void ADXLIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, 
 /// @param peakAltitude      Peak altitude variable
 void LSMIdleToAscend(OutputData_t& OutputData, MagnitudeData_t& MagnitudeData, uint8_t& counter, float& peakAltitude);
 
+void IdleToAscend(OutputData_t& gOutputData, MagnitudeData_t& gMagnitudeData, uint8_t& counter, float& peakAltitude);
+
 #endif
