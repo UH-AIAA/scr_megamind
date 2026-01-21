@@ -64,12 +64,16 @@ Adafruit_ADXL375 ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
-// SPIClass SPI2(HSPI);
+SPIClass SPI2(HSPI);
 File sdData;
 
 //SPI mutex
 static SemaphoreHandle_t sensor_spi_mutex;
 
+// LORA Benchmark type
+typedef struct FakeLORAMsg {
+    uint16_t testArr[6*5];    // 6 doubles per sensor, five sensors, 1920 bits
+} FakeLORAMsg_t;
 
 
 void init_spi() {
@@ -83,6 +87,7 @@ void init_spi() {
     LSM.begin_SPI(LSM6DSO32_CS, &SPI);
 
     // TODO: [NS] add SD/Lora SPI
+    SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
 
     // sensor setup
     BMP.setPressureOversampling(BMP5XX_OVERSAMPLING_1X);
@@ -91,6 +96,11 @@ void init_spi() {
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
+
+    // LORA setup (Thanh's work!)
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    LoRa.begin(LORA_FREQ);
 }
 
 void init_I2C() {
@@ -112,7 +122,11 @@ void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 
-void MegaMind_LAUNCH(void *pvParameter);
+void LORA_task(void *pvParameter);
+FakeLORAMsg_t testMsg = {
+    .testArr = {0},
+};
+// void SD_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -143,54 +157,64 @@ extern "C" void app_main()
     );
 */
     // create tasks!
-    xTaskCreatePinnedToCore(
-        GPS_task,
-        "GPS Task",
-        5000,
-        NULL,
-        3,
-        NULL,
-        1
-    );
+    // xTaskCreatePinnedToCore(
+    //     GPS_task,
+    //     "GPS Task",
+    //     5000,
+    //     NULL,
+    //     3,
+    //     NULL,
+    //     1
+    // );
     
-    xTaskCreatePinnedToCore(
-        ADXL_task,
-        "ADXL_task",
-        5000,
-        NULL,
-        5,
-        NULL,
-        0
-    );
+    // xTaskCreatePinnedToCore(
+    //     ADXL_task,
+    //     "ADXL_task",
+    //     5000,
+    //     NULL,
+    //     5,
+    //     NULL,
+    //     0
+    // );
     
+    // xTaskCreatePinnedToCore(
+    //     BNO_task,
+    //     "BNO_task",
+    //     5000,
+    //     NULL,
+    //     2,
+    //     NULL,
+    //     0
+    // );
+    
+    // xTaskCreatePinnedToCore(
+    //     LSM_task,
+    //     "LSM_task",
+    //     5000,
+    //     NULL,
+    //     3,
+    //     NULL,
+    //     0
+    // );
+
+    // xTaskCreatePinnedToCore(
+    //     BMP_task,
+    //     "BMP_task",
+    //     5000,
+    //     NULL,
+    //     4,
+    //     NULL,
+    //     0
+    // );
+
     xTaskCreatePinnedToCore(
-        BNO_task,
-        "BNO_task",
+        LORA_task,
+        "LoRa_task",
         5000,
         NULL,
         2,
         NULL,
-        0
-    );
-    
-    xTaskCreatePinnedToCore(
-        LSM_task,
-        "LSM_task",
-        5000,
-        NULL,
-        3,
-        NULL,
-        0
-    );
-
-    xTaskCreatePinnedToCore(
-        BMP_task,
-        "BMP_task",
-        5000,
-        NULL,
-        4,
-        NULL,
-        0
+        1
     );
 }
 
@@ -230,8 +254,7 @@ void GPS_task(void *pvParameter) {
         end:
             uint32_t endms = millis();
             uint32_t spentms = endms - startms;
-            printf("Millis: %lu\n", endms);
-            printf("Task took %lu ms to complete.\n\n", spentms);
+            printf("Millis: %lu\n", endms); printf("Task took %lu ms to complete.\n\n", spentms);
             uint32_t delayms = std::min(200 - spentms, static_cast<uint32_t>(10));
             vTaskDelay(delayms);
     }
@@ -402,6 +425,30 @@ void BMP_task(void *pvParameter) {
             xSemaphoreGive(sensor_spi_mutex);//gives back mutex
     
         }
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void LORA_task(void *pvParameter)
+{
+    static TickType_t uptime;
+    static uint32_t startTime, endTime;
+    while (1)
+    {
+        uptime = xTaskGetTickCount();
+        startTime = millis();
+        if(!LoRa.beginPacket()) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        LoRa.write((uint8_t*)&testMsg, sizeof(FakeLORAMsg_t));
+        LoRa.endPacket();
+        endTime = millis();
+
+        #ifdef DEBUG
+            printf("Uptime: %lu\n", uptime);
+            printf("Elapsed Time: %lu\n\n", endTime - startTime);
+        #endif
 
         vTaskDelay(pdMS_TO_TICKS(20));
     }
