@@ -77,11 +77,20 @@ typedef struct ADXLMessage {
     float acceleration[3];  // acceleration data (x, y, z);
 } ADXLMessage_t;
 
+typedef struct BNOMessage{
+    uint32_t uptime;              //uptime from BNO snsor
+    float quaternion[4];          //W,X,Y,Z data
+    float euler_orientation[3];   //x,y,z angular velocities
+}BNOMessage_t;
+
+
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
 typedef struct GDQ {
     QueueHandle_t ADXL;
+    BNOMessage_t BNO;
     // add more sensors here
+    
 } GDQ_t;
 
 GDQ_t GDQ;
@@ -122,6 +131,7 @@ void init_I2C() {
 void init_GDQ() {
     GDQ.ADXL = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(ADXLMessage_t));
     // do for other sensors here
+    GDQ.BNO = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BNOMessage_t));
 }
 
 // TODO: [NS/LF] figure out how to get these in another file to avoid polluting main
@@ -309,6 +319,9 @@ void ADXL_task(void *pvParameter) {
 }
 
 void BNO_task(void *pvParameter) {
+    //BNOmessage declaration
+    BNOMessage_t currentMessage = {0};
+
     while (1) {
         sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
 
@@ -331,6 +344,21 @@ void BNO_task(void *pvParameter) {
         TickType_t uptime = xTaskGetTickCount();
         
         imu::Quaternion quat = BNO.getQuat();
+
+        //save sensor data and add it to queue
+        currentMessage.quaternion[0] = quat.w();
+        currentMessage.quaternion[1] = quat.x();
+        currentMessage.quaternion[2] = quat.y();
+        currentMessage.quaternion[3] = quat.z();
+
+        currentMessage.euler_orientation[0] = angVelocityData.gyro.x;
+        currentMessage.euler_orientation[1] = angVelocityData.gyro.y;
+        currentMessage.euler_orientation[2] = angVelocityData.gyro.z;
+
+        //write message to queue
+        xQueueSend(GDQ.BNO, &currentMessage, 0);
+
+
 
         uint32_t endTime = millis();
 
