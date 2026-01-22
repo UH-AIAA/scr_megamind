@@ -77,18 +77,20 @@ typedef struct ADXLMessage {
     float acceleration[3];  // acceleration data (x, y, z);
 } ADXLMessage_t;
 
-typedef struct BNOMessage{
+typedef struct BNOMessage {
     uint32_t uptime;              //uptime from BNO snsor
     float quaternion[4];          //W,X,Y,Z data
-    float euler_orientation[3];   //x,y,z angular velocities
-}BNOMessage_t;
+    float euler_orientation[3];   //x,y,z angular acceleration
+    float magnetometer[3];        //x,y,z, of SOMETHING, not sure yet
+    float acceleration[3];        //x,y,z linear acceleration
+} BNOMessage_t;
 
 
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
 typedef struct GDQ {
     QueueHandle_t ADXL;
-    BNOMessage_t BNO;
+    QueueHandle_t BNO;
     // add more sensors here
     
 } GDQ_t;
@@ -140,8 +142,6 @@ void BNO_task(void *pvParameter);
 void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
-
-void MegaMind_LAUNCH(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -318,13 +318,17 @@ void ADXL_task(void *pvParameter) {
     }
 }
 
+// TODO: [NS/JL] figure out exactly raw data we have access
+//               to and what it means
 void BNO_task(void *pvParameter) {
-    //BNOmessage declaration
+    // variable declaration
+    sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
+    uint32_t startTime, endTime;
+    TickType_t uptime;
     BNOMessage_t currentMessage = {0};
 
     while (1) {
-        sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
-
+        // TODO: [NS/JL] assess if we actually need to gather all this data from the sensor
         // if we can't get BNO data, end task early and schedule again after 1 tick
         if (!BNO.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
             vTaskDelay(1);
@@ -340,8 +344,8 @@ void BNO_task(void *pvParameter) {
         }
         
         // gather function start time
-        uint32_t startTime = millis();
-        TickType_t uptime = xTaskGetTickCount();
+        startTime = millis();
+        uptime = xTaskGetTickCount();
         
         imu::Quaternion quat = BNO.getQuat();
 
@@ -355,12 +359,18 @@ void BNO_task(void *pvParameter) {
         currentMessage.euler_orientation[1] = angVelocityData.gyro.y;
         currentMessage.euler_orientation[2] = angVelocityData.gyro.z;
 
+        currentMessage.magnetometer[0] = magnetometerData.magnetic.x;
+        currentMessage.magnetometer[1] = magnetometerData.magnetic.y;
+        currentMessage.magnetometer[2] = magnetometerData.magnetic.z;
+
+        currentMessage.acceleration[0] = accelerometerData.acceleration.x;
+        currentMessage.acceleration[1] = accelerometerData.acceleration.y;
+        currentMessage.acceleration[2] = accelerometerData.acceleration.z;
+
         //write message to queue
         xQueueSend(GDQ.BNO, &currentMessage, 0);
 
-
-
-        uint32_t endTime = millis();
+        endTime = millis();
 
         #ifdef DEBUG
             printf("BNO Uptime: %lu\n", uptime);
@@ -381,7 +391,6 @@ void BNO_task(void *pvParameter) {
 
         // vTaskDelay(pdMS_TO_TICKS(20 - (endTime - startTime)));
         vTaskDelay(pdMS_TO_TICKS(20));
-
     }
 }
 
