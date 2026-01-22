@@ -85,6 +85,26 @@ typedef struct BNOMessage {
     float acceleration[3];        //x,y,z linear acceleration
 } BNOMessage_t;
 
+typedef struct GPSMessage {
+    uint32_t time;
+    int satellites;               // not sure if this is necessary but I'll include it
+    float longitude, latitude;    // numerical coordinates for the longitude and latitude in degress/minutes
+    char lon,lat;                 // stores the cardinal direction (E/W for lon and N/S for lat)
+    float altitude;               // gps altitude reading
+}GPSMessage_t;
+
+typedef struct LSMMessage {
+    uint32_t time;
+    float acceleration[3];         // stores the X,Y,Z acceleration
+    float gyro[3];                 // stores X,Y,Z gyro orientation
+    //float temp;                  // this was commented off but I'll keep it here in case we use it
+}LSMMessage_t;
+
+typedef struct BMPMessage {
+    uint32_t time;
+    float temp, pressure, alititude;    // temperature in celcius, pressure in pascals, altitude from sea level
+}BMPMessage_t;
+
 
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
@@ -92,8 +112,14 @@ typedef struct GDQ {
     QueueHandle_t ADXL;
     QueueHandle_t BNO;
     // add more sensors here
+    QueueHandle_t GPS;
+    QueueHandle_t LSM;
+    QueueHandle_t BMP;
+
     
 } GDQ_t;
+
+
 
 GDQ_t GDQ;
 
@@ -134,6 +160,9 @@ void init_GDQ() {
     GDQ.ADXL = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(ADXLMessage_t));
     // do for other sensors here
     GDQ.BNO = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BNOMessage_t));
+    GDQ.GPS = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(GPSMessage_t));
+    GDQ.LSM = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(LSMMessage_t));
+    GDQ.BMP = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BMPMessage_t));
 }
 
 // TODO: [NS/LF] figure out how to get these in another file to avoid polluting main
@@ -226,6 +255,9 @@ extern "C" void app_main()
 }
 
 void GPS_task(void *pvParameter) {
+
+    GPSMessage_t currentMessage = {0};
+
     while(true){
         uint32_t startms = millis();
         uint32_t timeout = startms + 200;
@@ -249,6 +281,18 @@ void GPS_task(void *pvParameter) {
                         
                         //Collects speed over the ground, not sure how useful it'll be
                         //printf("Speed (knots): %f\n" GPS.speed);
+
+                        // add data to struvt
+                        currentMessage.satellites = GPS.satellites;
+                        currentMessage.latitude = GPS.latitude;
+                        currentMessage.longitude = GPS.longitude;
+                        currentMessage.lat = GPS.lat;
+                        currentMessage.lon = GPS.lon;
+                        currentMessage.altitude = GPS.altitude;
+
+                        //write message to queue
+                        xQueueSend(GDQ.GPS, &currentMessage, 0);
+
 
                         // if we found data, go to end of function
                         // we don't want to print out the same data multiple times
@@ -395,6 +439,9 @@ void BNO_task(void *pvParameter) {
 }
 
 void LSM_task(void *pvParameter) {
+
+    LSMMessage_t currentMessage = {0};
+
     while (1) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
@@ -412,6 +459,23 @@ void LSM_task(void *pvParameter) {
                 xSemaphoreGive(sensor_spi_mutex);
                 vTaskDelay(1);
             }
+
+            // adds data to LSM struct
+            currentMessage.acceleration[0] = accel.acceleration.x;
+            currentMessage.acceleration[1] = accel.acceleration.y;
+            currentMessage.acceleration[2] = accel.acceleration.z;
+
+            currentMessage.gyro[0] = gyro.gyro.x;
+            currentMessage.gyro[1] = gyro.gyro.y;
+            currentMessage.gyro[2] = gyro.gyro.z;
+
+            // remove comment marks to include temperate
+            //currentMessage.temp = temp;
+
+            // writes data to queue
+            xQueueSend(GDQ.LSM, &currentMessage, 0);
+
+
     
             //data printing 
             #ifdef DEBUG
@@ -440,6 +504,8 @@ void BMP_task(void *pvParameter) {
     static float bmp_temp, bmp_press, bmp_alt;
     static TickType_t upTime;
     static uint32_t startTime, endTime;
+    //initialize struct
+    BMPMessage_t currentMessage = {0};
     while(1) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
@@ -455,6 +521,14 @@ void BMP_task(void *pvParameter) {
                 bmp_alt = BMP.readAltitude(1013.25f);
     
                 // TODO: [NS] add calibration
+                
+                // adds data to struct
+                currentMessage.temp = bmp_temp;
+                currentMessage.pressure = bmp_press;
+                currentMessage.alititude = bmp_alt;
+
+                // writes data to queue
+                xQueueSend(GDQ.BMP, &currentMessage, 0);
     
                 #ifdef DEBUG
                     printf("BMP reporting OK!\n");
