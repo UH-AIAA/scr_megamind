@@ -141,6 +141,8 @@ void init_spi() {
     BMP.setOutputDataRate(BMP5XX_ODR_50_HZ);
     BMP.setPowerMode(BMP5XX_POWERMODE_NORMAL);
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
+
+    LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
 }
 
 void init_I2C() {
