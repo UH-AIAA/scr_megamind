@@ -454,11 +454,10 @@ void LSM_task(void *pvParameter) {
 
     while (1) {
         // attempts to retrieve mutex
-
-        uptime = xTaskGetTickCount(); 
-        startTime = millis(); 
-
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
+
+            uptime = xTaskGetTickCount(); 
+            startTime = millis(); 
     
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
