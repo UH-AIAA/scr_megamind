@@ -444,17 +444,22 @@ void LSM_task(void *pvParameter) {
 
     LSMMessage_t currentMessage = {0};
 
+    TickType_t uptime; 
+    uint32_t startTime;
+    uint32_t endTime;
+
+    //Sensor events 
+    sensors_event_t accel; 
+    sensors_event_t gyro; 
+    sensors_event_t temp; 
+
     while (1) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-            TickType_t uptime = xTaskGetTickCount();
-            uint32_t startTime = millis();
-    
-            //Sensor events
-            sensors_event_t accel;
-            sensors_event_t gyro;
-            sensors_event_t temp;
+            uptime = xTaskGetTickCount(); 
+            startTime = millis(); 
+            endTime = millis();
     
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
@@ -489,7 +494,6 @@ void LSM_task(void *pvParameter) {
                 printf("Y Gyro: %f [idk]\n",gyro.gyro.y);
                 printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
                 // printf("Temperature: %f [deg C]\n",temp);
-                uint32_t endTime = millis();
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
     
             #endif
