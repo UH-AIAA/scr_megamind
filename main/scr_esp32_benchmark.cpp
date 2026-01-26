@@ -112,17 +112,14 @@ typedef struct GDQ {
     QueueHandle_t ADXL;
     QueueHandle_t BNO;
     // add more sensors here
-    QueueHandle_t GPS;
+    // QueueHandle_t GPS;
     QueueHandle_t LSM;
     QueueHandle_t BMP;
-
-    
+    GPSMessage_t GPSMsg;    // added to make globally available
 } GDQ_t;
 
 
-
 GDQ_t GDQ;
-
 
 void init_spi() {
     // use Arduino SPI (for now...)
@@ -162,7 +159,7 @@ void init_GDQ() {
     GDQ.ADXL = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(ADXLMessage_t));
     // do for other sensors here
     GDQ.BNO = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BNOMessage_t));
-    GDQ.GPS = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(GPSMessage_t));
+    // GDQ.GPS = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(GPSMessage_t));
     GDQ.LSM = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(LSMMessage_t));
     GDQ.BMP = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BMPMessage_t));
 }
@@ -247,19 +244,13 @@ extern "C" void app_main()
 
     xTaskCreatePinnedToCore(
         BMP_task,
-        "BMP_task",
-        5000,
-        NULL,
-        4,
+        "BMP_task", 5000, NULL, 4,
         NULL,
         0
     );
 }
 
 void GPS_task(void *pvParameter) {
-
-    GPSMessage_t currentMessage = {0};
-
     while(true){
         uint32_t startms = millis();
         uint32_t timeout = startms + 200;
@@ -284,17 +275,15 @@ void GPS_task(void *pvParameter) {
                         //Collects speed over the ground, not sure how useful it'll be
                         //printf("Speed (knots): %f\n" GPS.speed);
 
-                        // add data to struvt
-                        currentMessage.satellites = GPS.satellites;
-                        currentMessage.latitude = GPS.latitude;
-                        currentMessage.longitude = GPS.longitude;
-                        currentMessage.lat = GPS.lat;
-                        currentMessage.lon = GPS.lon;
-                        currentMessage.altitude = GPS.altitude;
+                        // add data to struct
+                        GDQ.GPSMsg.satellites = GPS.satellites;
+                        GDQ.GPSMsg.latitude = GPS.latitude;
+                        GDQ.GPSMsg.longitude = GPS.longitude;
+                        GDQ.GPSMsg.lat = GPS.lat;
+                        GDQ.GPSMsg.lon = GPS.lon;
+                        GDQ.GPSMsg.altitude = GPS.altitude;
 
                         //write message to queue
-                        xQueueSend(GDQ.GPS, &currentMessage, 0);
-
 
                         // if we found data, go to end of function
                         // we don't want to print out the same data multiple times
@@ -341,7 +330,7 @@ void ADXL_task(void *pvParameter) {
 
             // zero wait time means data is dropped if queue is full,
             // i think that's okay! hopefully queue shouldn't be full
-            xQueueSend(GDQ.ADXL, &currentMessage, 0);
+            xQueueSendToBack(GDQ.ADXL, &currentMessage, 0);
 
             // write data to queue
 
@@ -414,7 +403,7 @@ void BNO_task(void *pvParameter) {
         currentMessage.acceleration[2] = accelerometerData.acceleration.z;
 
         //write message to queue
-        xQueueSend(GDQ.BNO, &currentMessage, 0);
+        xQueueSendToBack(GDQ.BNO, &currentMessage, 0);
 
         endTime = millis();
 
@@ -480,7 +469,7 @@ void LSM_task(void *pvParameter) {
             //currentMessage.temp = temp;
 
             // writes data to queue
-            xQueueSend(GDQ.LSM, &currentMessage, 0);
+            xQueueSendToBack(GDQ.LSM, &currentMessage, 0);
 
 
     
@@ -534,7 +523,7 @@ void BMP_task(void *pvParameter) {
                 currentMessage.alititude = bmp_alt;
 
                 // writes data to queue
-                xQueueSend(GDQ.BMP, &currentMessage, 0);
+                xQueueSendToBack(GDQ.BMP, &currentMessage, 0);
     
                 #ifdef DEBUG
                     printf("BMP reporting OK!\n");
