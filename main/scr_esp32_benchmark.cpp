@@ -237,6 +237,16 @@ extern "C" void app_main()
         NULL,
         1
     );
+
+    xTaskCreatePinnedToCore(
+        SD_task,
+        "SD_task",
+        8000,
+        NULL,
+        5,
+        NULL,
+        1
+    );
     
     xTaskCreatePinnedToCore(
         ADXL_task,
@@ -302,12 +312,12 @@ void GPS_task(void *pvParameter) {
                         //printf("Speed (knots): %f\n" GPS.speed);
 
                         // add data to struct
-                        GDQ.GPSMsg.satellites = GPS.satellites;
-                        GDQ.GPSMsg.latitude = GPS.latitude;
-                        GDQ.GPSMsg.longitude = GPS.longitude;
-                        GDQ.GPSMsg.lat = GPS.lat;
-                        GDQ.GPSMsg.lon = GPS.lon;
-                        GDQ.GPSMsg.altitude = GPS.altitude;
+                        GDQ.LatestGPSMsg.satellites = GPS.satellites;
+                        GDQ.LatestGPSMsg.latitude = GPS.latitude;
+                        GDQ.LatestGPSMsg.longitude = GPS.longitude;
+                        GDQ.LatestGPSMsg.lat = GPS.lat;
+                        GDQ.LatestGPSMsg.lon = GPS.lon;
+                        GDQ.LatestGPSMsg.altitude = GPS.altitude;
 
                         //write message to queue
 
@@ -578,9 +588,66 @@ void BMP_task(void *pvParameter) {
 }
 
 void SD_task(void *pvParameter)
-{
+{   
+    static char msgBuf[512];
+    static size_t index;
+
+    static ADXLMessage_t adxlMsg;
+    static BNOMessage_t bnoMsg;
+    static LSMMessage_t lsmMsg;
+    static BMPMessage_t bmpMsg;
+
+    // TODO: [NS] make these #defines
+    // TODO: [NS] manually add data length size
+    static constexpr uint8_t ADXL_OVERHEAD_SZ = 5 + 2;
+    static constexpr uint8_t BNO_OVERHEAD_SZ = 15 + 2;
+    // static const uint8_t LSM_OVERHEAD_SZ;
+    // static const uint8_t BMP_OVERHEAD_SZ;
+
     while(1)
     {
+        // if ADXL queue isn't empty,
+            // figure out how many messages we could write into the buffer
+        while((index + sizeof(ADXLMessage_t) + ADXL_OVERHEAD_SZ < 512)
+            && uxQueueMessagesWaiting(GDQ.ADXL) != 0)
+        {
+            xQueueReceive(GDQ.ADXL, &adxlMsg, 0);
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index, 
+                     "0,%lu,%f,%f,%f\n",
+                     adxlMsg.time,
+                     adxlMsg.acceleration[0], adxlMsg.acceleration[1], adxlMsg.acceleration[2]
+            );
+        }
+        while((index + sizeof(BNOMessage_t) + BNO_OVERHEAD_SZ < 512)
+            && uxQueueMessagesWaiting(GDQ.BNO) != 0)
+        {
+            xQueueReceive(GDQ.BNO, &bnoMsg, 0);
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index, 
+                     "1,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                      bnoMsg.uptime, 
+                      bnoMsg.quaternion[0], bnoMsg.quaternion[1], bnoMsg.quaternion[2], bnoMsg.quaternion[3], 
+                      bnoMsg.acceleration[0], bnoMsg.acceleration[1], bnoMsg.acceleration[2],
+                      bnoMsg.euler_orientation[0], bnoMsg.euler_orientation[1], bnoMsg.euler_orientation[2],
+                      bnoMsg.magnetometer[0], bnoMsg.magnetometer[1], bnoMsg.magnetometer[2]
+            );
+        } 
 
+        // print buffer
+        sdData.print(msgBuf);
+        sdData.flush();
+
+        // reset buffer
+        index = 0;
+        memset(msgBuf, 0, sizeof(msgBuf));
+
+        // while (uxQueueMessagesWaiting(GDQ.LSM) != 0 ) 
+        // {
+
+        // } 
+        // while (uxQueueMessagesWaiting(GDQ.BMP) != 0 ) 
+        // {
+
+        // }
+        vTaskDelay(1);
     }
 }
