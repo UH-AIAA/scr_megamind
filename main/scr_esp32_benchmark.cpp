@@ -17,6 +17,7 @@
 
 // SPI imports, I^2C, and UART Imports
 #include "SPI.h"
+#include "SD.h"
 #include "Arduino.h"
 #include "Adafruit_BMP5xx.h"
 #include "Adafruit_ADXL375.h"
@@ -49,6 +50,7 @@
 #define ADXL375_CS 5
 #define LSM6DSO32_CS 4
 #define LORA_CS 7
+#define SD_CS 20
 
 // Lo-Ra Control Pins
 #define LORA_RST 21
@@ -65,8 +67,11 @@ Adafruit_ADXL375 ADXL(ADXL375_CS, &SPI);
 Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
-// SPIClass SPI2(HSPI);
+SPIClass SPI2(HSPI);
 File sdData;
+
+// SD Data Header
+const char header[24] = "sensor_code,time,packet";
 
 //SPI mutex
 static SemaphoreHandle_t sensor_spi_mutex;
@@ -115,7 +120,12 @@ typedef struct GDQ {
     // QueueHandle_t GPS;
     QueueHandle_t LSM;
     QueueHandle_t BMP;
-    GPSMessage_t GPSMsg;    // added to make globally available
+
+    GPSMessage_t LatestGPSMsg;    // added to make globally available
+    ADXLMessage_t LatestADXLMsg;
+    BNOMessage_t LatestBNOMsg;
+    LSMMessage_t LatestLSMMsg;
+    BMPMessage_t LatestBMPMsg;
 } GDQ_t;
 
 
@@ -140,6 +150,16 @@ void init_spi() {
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
+
+    // Add LoRa + SD
+    // TODO: [NS/VN] - add LoRa SPI Init here
+    SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
+    SD.begin(SD_CS, SPI2, 4E6);    // TODO: [NS] make this a #define
+
+    // TODO: update file name with RTC input once configured
+    sdData = SD.open("/sdData.csv", FILE_WRITE);
+    sdData.println(header);
+    // sdData.close();
 }
 
 void init_I2C() {
@@ -162,6 +182,11 @@ void init_GDQ() {
     // GDQ.GPS = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(GPSMessage_t));
     GDQ.LSM = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(LSMMessage_t));
     GDQ.BMP = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BMPMessage_t));
+    GDQ.LatestGPSMsg = {0};
+    GDQ.LatestADXLMsg = {0};
+    GDQ.LatestBNOMsg = {0};
+    GDQ.LatestLSMMsg = {0};
+    GDQ.LatestBMPMsg = {0};
 }
 
 // TODO: [NS/LF] figure out how to get these in another file to avoid polluting main
@@ -170,6 +195,7 @@ void BNO_task(void *pvParameter);
 void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
+void SD_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -331,6 +357,7 @@ void ADXL_task(void *pvParameter) {
             // zero wait time means data is dropped if queue is full,
             // i think that's okay! hopefully queue shouldn't be full
             xQueueSendToBack(GDQ.ADXL, &currentMessage, 0);
+            GDQ.LatestADXLMsg = currentMessage;
 
             // write data to queue
 
@@ -404,6 +431,7 @@ void BNO_task(void *pvParameter) {
 
         //write message to queue
         xQueueSendToBack(GDQ.BNO, &currentMessage, 0);
+        GDQ.LatestBNOMsg = currentMessage;
 
         endTime = millis();
 
@@ -448,7 +476,6 @@ void LSM_task(void *pvParameter) {
 
             uptime = xTaskGetTickCount(); 
             startTime = millis(); 
-            endTime = millis();
     
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
@@ -470,9 +497,10 @@ void LSM_task(void *pvParameter) {
 
             // writes data to queue
             xQueueSendToBack(GDQ.LSM, &currentMessage, 0);
+            GDQ.LatestLSMMsg = currentMessage;
+            
+            endTime = millis();
 
-
-    
             //data printing 
             #ifdef DEBUG
                 printf("LSM Ticktime: %lu [ms]\n", uptime);
@@ -524,6 +552,7 @@ void BMP_task(void *pvParameter) {
 
                 // writes data to queue
                 xQueueSendToBack(GDQ.BMP, &currentMessage, 0);
+                GDQ.LatestBMPMsg = currentMessage;
     
                 #ifdef DEBUG
                     printf("BMP reporting OK!\n");
@@ -545,5 +574,13 @@ void BMP_task(void *pvParameter) {
         }
 
         vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
+void SD_task(void *pvParameter)
+{
+    while(1)
+    {
+
     }
 }
