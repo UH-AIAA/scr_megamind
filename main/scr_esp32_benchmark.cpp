@@ -107,7 +107,7 @@ typedef struct LSMMessage {
 
 typedef struct BMPMessage {
     uint32_t time;
-    float temp, pressure, alititude;    // temperature in celcius, pressure in pascals, altitude from sea level
+    float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
 }BMPMessage_t;
 
 
@@ -558,7 +558,7 @@ void BMP_task(void *pvParameter) {
                 // adds data to struct
                 currentMessage.temp = bmp_temp;
                 currentMessage.pressure = bmp_press;
-                currentMessage.alititude = bmp_alt;
+                currentMessage.altitude = bmp_alt;
 
                 // writes data to queue
                 xQueueSendToBack(GDQ.BMP, &currentMessage, 0);
@@ -601,8 +601,8 @@ void SD_task(void *pvParameter)
     // TODO: [NS] manually add data length size
     static constexpr uint8_t ADXL_OVERHEAD_SZ = 5 + 2;
     static constexpr uint8_t BNO_OVERHEAD_SZ = 15 + 2;
-    // static const uint8_t LSM_OVERHEAD_SZ;
-    // static const uint8_t BMP_OVERHEAD_SZ;
+    static const uint8_t LSM_OVERHEAD_SZ;
+    static const uint8_t BMP_OVERHEAD_SZ;
 
     while(1)
     {
@@ -618,6 +618,7 @@ void SD_task(void *pvParameter)
                      adxlMsg.acceleration[0], adxlMsg.acceleration[1], adxlMsg.acceleration[2]
             );
         }
+
         while((index + sizeof(BNOMessage_t) + BNO_OVERHEAD_SZ < 512)
             && uxQueueMessagesWaiting(GDQ.BNO) != 0)
         {
@@ -631,6 +632,31 @@ void SD_task(void *pvParameter)
                       bnoMsg.magnetometer[0], bnoMsg.magnetometer[1], bnoMsg.magnetometer[2]
             );
         } 
+
+        while((index + sizeof(LSMMessage_t) + LSM_OVERHEAD_SZ < 512)
+            && uxQueueMessagesWaiting(GDQ.BNO) != 0)
+        {
+            xQueueReceive(GDQ.LSM, &lsmMsg, 0);
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+                     "2,%lu,%f,%f,%f,%f,%f,%f\n",
+                     lsmMsg.time,
+                     lsmMsg.acceleration[0], lsmMsg.acceleration[1], lsmMsg.acceleration[2],
+                     lsmMsg.gyro[0], lsmMsg.gyro[1], lsmMsg.gyro[2]
+            );
+        }
+
+        while((index + sizeof(BMPMessage_t) + BNO_OVERHEAD_SZ < 512)
+            && uxQueueMessagesWaiting(GDQ.BMP) != 0)
+        {
+            xQueueReceive(GDQ.BMP, &bmpMsg, 0);
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+                     "3,%lu,%f,%f,%f\n",
+                     bmpMsg.time,
+                     bmpMsg.temp,
+                     bmpMsg.pressure,
+                     bmpMsg.altitude
+            );
+        }
 
         // print buffer
         sdData.print(msgBuf);
