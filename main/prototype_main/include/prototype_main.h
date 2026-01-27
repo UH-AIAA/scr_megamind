@@ -1,3 +1,5 @@
+/// Made by Thanh Pham @2025-2026
+
 #ifndef PROTOTYPE_MAIN_H
 #define PROTOTYPE_MAIN_H
 
