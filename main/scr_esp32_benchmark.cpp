@@ -601,13 +601,13 @@ void SD_task(void *pvParameter)
     // TODO: [NS] manually add data length size
     static constexpr uint8_t ADXL_OVERHEAD_SZ = 5 + 2;
     static constexpr uint8_t BNO_OVERHEAD_SZ = 15 + 2;
-    static const uint8_t LSM_OVERHEAD_SZ;
-    static const uint8_t BMP_OVERHEAD_SZ;
+    static constexpr uint8_t LSM_OVERHEAD_SZ;
+    static constexpr uint8_t BMP_OVERHEAD_SZ;
 
     while(1)
     {
         // if ADXL queue isn't empty,
-            // figure out how many messages we could write into the buffer
+        // figure out how many messages we could write into the buffer
         while((index + sizeof(ADXLMessage_t) + ADXL_OVERHEAD_SZ < 512)
             && uxQueueMessagesWaiting(GDQ.ADXL) != 0)
         {
@@ -666,14 +666,6 @@ void SD_task(void *pvParameter)
         index = 0;
         memset(msgBuf, 0, sizeof(msgBuf));
 
-        // while (uxQueueMessagesWaiting(GDQ.LSM) != 0 ) 
-        // {
-
-        // } 
-        // while (uxQueueMessagesWaiting(GDQ.BMP) != 0 ) 
-        // {
-
-        // }
         vTaskDelay(1);
     }
 }
