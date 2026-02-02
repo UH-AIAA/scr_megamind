@@ -3,7 +3,7 @@
 ///////////////////////////////////////////////////////////////////////
 /*                           N. Samuell                              */
 /*                      FreeRTOS/ESP-IDF test                        */
-/*                          MIT License                              */ 
+/*                          MIT License                              */
 ///////////////////////////////////////////////////////////////////////
 
 
@@ -58,7 +58,7 @@
 #define LORA_FREQ 915E6
 
 // Debug control definitions
-#define DEBUG
+// #define DEBUG
 #define MAX_SENSOR_QUEUE_SIZE (50)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
@@ -135,7 +135,7 @@ void init_spi() {
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
     bool spiStatus = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
-    
+
     // start SPI sensors on bus
     BMP.begin(BMP390_CS, &SPI);
     ADXL.begin();
@@ -169,7 +169,7 @@ void init_I2C() {
     GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
     GPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ);
     GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
-    
+
     // BNO begin
     BNO.begin();
 }
@@ -216,7 +216,7 @@ extern "C" void app_main()
 
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
-    
+
     // sample task for your convenience
 /*    xTaskCreate(
         MegaMind_LAUNCH,    // [in] function pointer
@@ -247,7 +247,7 @@ extern "C" void app_main()
         NULL,
         1
     );
-    
+
     xTaskCreatePinnedToCore(
         ADXL_task,
         "ADXL_task",
@@ -257,7 +257,7 @@ extern "C" void app_main()
         NULL,
         0
     );
-    
+
     xTaskCreatePinnedToCore(
         BNO_task,
         "BNO_task",
@@ -267,7 +267,7 @@ extern "C" void app_main()
         NULL,
         0
     );
-    
+
     xTaskCreatePinnedToCore(
         LSM_task,
         "LSM_task",
@@ -307,7 +307,7 @@ void GPS_task(void *pvParameter) {
                         printf("Latitude: %f, %c\n", GPS.latitude,GPS.lat);
                         printf("Longitude: %f, %c\n", GPS.longitude, GPS.lon);
                         printf("Altitude: %f [meters]\n", GPS.altitude);
-                        
+
                         //Collects speed over the ground, not sure how useful it'll be
                         //printf("Speed (knots): %f\n" GPS.speed);
 
@@ -352,7 +352,7 @@ void ADXL_task(void *pvParameter) {
             // gather what time the function started
             startTime = millis();
             uptime = xTaskGetTickCount();
-    
+
             // if read operation fails, start task over:
             if(!ADXL.getEvent(&event)) {
                 xSemaphoreGive(sensor_spi_mutex);
@@ -372,17 +372,17 @@ void ADXL_task(void *pvParameter) {
             // write data to queue
 
             endTime = millis();
-    
+
             #ifdef DEBUG
                 printf("ADXL Uptime: %lu [ms]\n",uptime);
                 //Display the results (acceleration is measured in m/s^2)
-    
+
                 printf("X: %f [m/s^2]\n",event.acceleration.x);
                 printf("Y: %f [m/s^2]\n",event.acceleration.y);
                 printf("Z: %f [m/s^2]\n",event.acceleration.z);
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
             #endif
-    
+
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }
@@ -414,11 +414,11 @@ void BNO_task(void *pvParameter) {
         if (!BNO.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
             vTaskDelay(1);
         }
-        
+
         // gather function start time
         startTime = millis();
         uptime = xTaskGetTickCount();
-        
+
         imu::Quaternion quat = BNO.getQuat();
 
         //save sensor data and add it to queue
@@ -471,22 +471,22 @@ void LSM_task(void *pvParameter) {
 
     LSMMessage_t currentMessage = {0};
 
-    TickType_t uptime; 
+    TickType_t uptime;
     uint32_t startTime;
     uint32_t endTime;
 
-    //Sensor events 
-    sensors_event_t accel; 
-    sensors_event_t gyro; 
-    sensors_event_t temp; 
+    //Sensor events
+    sensors_event_t accel;
+    sensors_event_t gyro;
+    sensors_event_t temp;
 
     while (1) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-            uptime = xTaskGetTickCount(); 
-            startTime = millis(); 
-    
+            uptime = xTaskGetTickCount();
+            startTime = millis();
+
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
                 xSemaphoreGive(sensor_spi_mutex);
@@ -506,12 +506,15 @@ void LSM_task(void *pvParameter) {
             //currentMessage.temp = temp;
 
             // writes data to queue
-            xQueueSendToBack(GDQ.LSM, &currentMessage, 0);
+            if(xQueueSendToBack(GDQ.LSM, &currentMessage, 0) != pdTRUE)
+            {
+                printf("LSM Lost Packet!\n");
+            }
             GDQ.LatestLSMMsg = currentMessage;
-            
+
             endTime = millis();
 
-            //data printing 
+            //data printing
             #ifdef DEBUG
                 printf("LSM Ticktime: %lu [ms]\n", uptime);
                 printf("X Acceleration: %f [m/s^2]\n", accel.acceleration.x);
@@ -522,9 +525,9 @@ void LSM_task(void *pvParameter) {
                 printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
                 // printf("Temperature: %f [deg C]\n",temp);
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
-    
+
             #endif
-            
+
             // give back mutex
             xSemaphoreGive(sensor_spi_mutex);
         }
@@ -547,14 +550,14 @@ void BMP_task(void *pvParameter) {
             startTime = millis();
             upTime = xTaskGetTickCount();
             bmp_up = BMP.performReading();
-    
+
             if(bmp_up) {
                 bmp_temp = BMP.temperature;
                 bmp_press = BMP.pressure;
                 bmp_alt = BMP.readAltitude(1013.25f);
-    
+
                 // TODO: [NS] add calibration
-                
+
                 // adds data to struct
                 currentMessage.temp = bmp_temp;
                 currentMessage.pressure = bmp_press;
@@ -563,7 +566,7 @@ void BMP_task(void *pvParameter) {
                 // writes data to queue
                 xQueueSendToBack(GDQ.BMP, &currentMessage, 0);
                 GDQ.LatestBMPMsg = currentMessage;
-    
+
                 #ifdef DEBUG
                     printf("BMP reporting OK!\n");
                     printf("BMP Temp: %f\n", bmp_temp);
@@ -578,9 +581,9 @@ void BMP_task(void *pvParameter) {
                     printf("BMP reporting NOT OK!\n\n");
                 #endif
             }
-    
+
             xSemaphoreGive(sensor_spi_mutex);//gives back mutex
-    
+
         }
 
         vTaskDelay(pdMS_TO_TICKS(20));
@@ -588,8 +591,8 @@ void BMP_task(void *pvParameter) {
 }
 
 void SD_task(void *pvParameter)
-{   
-    static char msgBuf[512];
+{
+    static char msgBuf[5096];
     static size_t index;
 
     static ADXLMessage_t adxlMsg;
@@ -598,42 +601,49 @@ void SD_task(void *pvParameter)
     static BMPMessage_t bmpMsg;
 
     // TODO: [NS] make these #defines
-    // TODO: [NS] manually add data length size
+
+    static constexpr uint8_t ADXL_MSG_SZ = 6 * 4;
+    static constexpr uint8_t BNO_MSG_SZ = 6 * 13;
+    static constexpr uint8_t LSM_MSG_SZ = 6 * 7;
+    static constexpr uint8_t BMP_MSG_SZ = 6 * 4;
+
     static constexpr uint8_t ADXL_OVERHEAD_SZ = 5 + 2;
     static constexpr uint8_t BNO_OVERHEAD_SZ = 15 + 2;
-    static constexpr uint8_t LSM_OVERHEAD_SZ;
-    static constexpr uint8_t BMP_OVERHEAD_SZ;
+    static constexpr uint8_t LSM_OVERHEAD_SZ = 8 + 2;
+    static constexpr uint8_t BMP_OVERHEAD_SZ = 4 + 2;
 
     while(1)
     {
+
+        TickType_t startTime = millis();
         // if ADXL queue isn't empty,
         // figure out how many messages we could write into the buffer
-        while((index + sizeof(ADXLMessage_t) + ADXL_OVERHEAD_SZ < 512)
+        while((index + sizeof(ADXLMessage_t) + ADXL_OVERHEAD_SZ < 5096)
             && uxQueueMessagesWaiting(GDQ.ADXL) != 0)
         {
             xQueueReceive(GDQ.ADXL, &adxlMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index, 
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "0,%lu,%f,%f,%f\n",
                      adxlMsg.time,
                      adxlMsg.acceleration[0], adxlMsg.acceleration[1], adxlMsg.acceleration[2]
             );
         }
 
-        while((index + sizeof(BNOMessage_t) + BNO_OVERHEAD_SZ < 512)
+        while((index + sizeof(BNOMessage_t) + BNO_OVERHEAD_SZ < 5096)
             && uxQueueMessagesWaiting(GDQ.BNO) != 0)
         {
             xQueueReceive(GDQ.BNO, &bnoMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index, 
+            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "1,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
-                      bnoMsg.uptime, 
-                      bnoMsg.quaternion[0], bnoMsg.quaternion[1], bnoMsg.quaternion[2], bnoMsg.quaternion[3], 
+                      bnoMsg.uptime,
+                      bnoMsg.quaternion[0], bnoMsg.quaternion[1], bnoMsg.quaternion[2], bnoMsg.quaternion[3],
                       bnoMsg.acceleration[0], bnoMsg.acceleration[1], bnoMsg.acceleration[2],
                       bnoMsg.euler_orientation[0], bnoMsg.euler_orientation[1], bnoMsg.euler_orientation[2],
                       bnoMsg.magnetometer[0], bnoMsg.magnetometer[1], bnoMsg.magnetometer[2]
             );
-        } 
+        }
 
-        while((index + sizeof(LSMMessage_t) + LSM_OVERHEAD_SZ < 512)
+        while((index + sizeof(LSMMessage_t) + LSM_OVERHEAD_SZ < 5096)
             && uxQueueMessagesWaiting(GDQ.BNO) != 0)
         {
             xQueueReceive(GDQ.LSM, &lsmMsg, 0);
@@ -645,7 +655,7 @@ void SD_task(void *pvParameter)
             );
         }
 
-        while((index + sizeof(BMPMessage_t) + BNO_OVERHEAD_SZ < 512)
+        while((index + sizeof(BMPMessage_t) + BMP_OVERHEAD_SZ < 5096)
             && uxQueueMessagesWaiting(GDQ.BMP) != 0)
         {
             xQueueReceive(GDQ.BMP, &bmpMsg, 0);
@@ -661,6 +671,11 @@ void SD_task(void *pvParameter)
         // print buffer
         sdData.print(msgBuf);
         sdData.flush();
+
+        TickType_t endTime = millis();
+        printf("ELAPSED TIME: %lu\n", endTime - startTime);
+        printf("Used Bytes: %lu\n\n", (unsigned long)index);
+        printf("BNO Queue Length: %lu", (unsigned long)uxQueueMessagesWaiting(GDQ.BNO));
 
         // reset buffer
         index = 0;
