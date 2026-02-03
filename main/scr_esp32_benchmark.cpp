@@ -152,7 +152,13 @@ void init_spi() {
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
 
     // Add LoRa + SD
-    // TODO: [NS/VN] - add LoRa SPI Init here
+    
+    // LORA setup (Thanh's work!)
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    LoRa.begin(LORA_FREQ);
+
+    // SD setup
     SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
     SD.begin(SD_CS, SPI2, 4E6);    // TODO: [NS] make this a #define
 
