@@ -59,7 +59,7 @@
 
 // Debug control definitions
 // #define DEBUG
-#define MAX_SENSOR_QUEUE_SIZE (50)  // napkin math says this is abt 1s of data?
+#define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
 Adafruit_BMP5xx BMP;
@@ -110,16 +110,30 @@ typedef struct BMPMessage {
     float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
 }BMPMessage_t;
 
+typedef enum SensorType {
+    SENSOR_ADXL = 0,
+    SENSOR_BNO  = 1,
+    SENSOR_LSM  = 2,
+    SENSOR_BMP  = 3,
+} SensorType_t;
+
+typedef struct GDQMessage {
+    uint32_t time;
+    SensorType_t sensor;
+
+    union {
+        ADXLMessage_t ADXLMessage;
+        BNOMessage_t BNOMessage;
+        LSMMessage_t LSMMessage;
+        BMPMessage_t BMPMessage;
+    }
+} GDQMessage_t
+
 
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
 typedef struct GDQ {
-    QueueHandle_t ADXL;
-    QueueHandle_t BNO;
-    // add more sensors here
-    // QueueHandle_t GPS;
-    QueueHandle_t LSM;
-    QueueHandle_t BMP;
+    QueueHandle_t SensorQueue;
 
     GPSMessage_t LatestGPSMsg;    // added to make globally available
     ADXLMessage_t LatestADXLMsg;
@@ -150,8 +164,9 @@ void init_spi() {
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
+    // TODO: [DA] - configure LSM acceleration range based off of acceleration curve
 
-    // Add LoRa + SD
+    // TODO: [DA] - configure ADXL acceleration range based off of acceleration curve
     
     // LORA setup (Thanh's work!)
     LoRa.setSPI(SPI2);
@@ -182,12 +197,8 @@ void init_I2C() {
 
 // init queues
 void init_GDQ() {
-    GDQ.ADXL = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(ADXLMessage_t));
-    // do for other sensors here
-    GDQ.BNO = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BNOMessage_t));
-    // GDQ.GPS = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(GPSMessage_t));
-    GDQ.LSM = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(LSMMessage_t));
-    GDQ.BMP = xQueueCreate(MAX_SENSOR_QUEUE_SIZE, sizeof(BMPMessage_t));
+    GDQ.sensors = xQueueCreate(MAX_SENSOR_QUEUE_SIZE * 4, sizeof(GDQMessage_t));
+    
     GDQ.LatestGPSMsg = {0};
     GDQ.LatestADXLMsg = {0};
     GDQ.LatestBNOMsg = {0};
@@ -347,7 +358,7 @@ void GPS_task(void *pvParameter) {
 
 void ADXL_task(void *pvParameter) {
     // variable declarations
-    ADXLMessage_t currentMessage = {0};
+    GDQMessage_t currentMessage = {0};
     sensors_event_t event;
     uint32_t startTime, endTime;
     TickType_t uptime;
@@ -356,7 +367,7 @@ void ADXL_task(void *pvParameter) {
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // gather what time the function started
-            startTime = millis();
+            startTime = millis();   // TODO: [JL] replace with unixtime/system clock timers
             uptime = xTaskGetTickCount();
 
             // if read operation fails, start task over:
@@ -366,14 +377,14 @@ void ADXL_task(void *pvParameter) {
             }
 
             // save off our sensor data, add it to queue
-            currentMessage.acceleration[0] = event.acceleration.x;
-            currentMessage.acceleration[1] = event.acceleration.y;
-            currentMessage.acceleration[2] = event.acceleration.z;
+            currentMessage.ADXLMessage.acceleration[0] = event.acceleration.x;
+            currentMessage.ADXLMessage.acceleration[1] = event.acceleration.y;
+            currentMessage.ADXLMessage.acceleration[2] = event.acceleration.z;
 
             // zero wait time means data is dropped if queue is full,
             // i think that's okay! hopefully queue shouldn't be full
-            xQueueSendToBack(GDQ.ADXL, &currentMessage, 0);
-            GDQ.LatestADXLMsg = currentMessage;
+            xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
+            GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
 
             // write data to queue
 
@@ -403,7 +414,7 @@ void BNO_task(void *pvParameter) {
     sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
     uint32_t startTime, endTime;
     TickType_t uptime;
-    BNOMessage_t currentMessage = {0};
+    GDQMessage_t currentMessage = {0};
 
     while (1) {
         // TODO: [NS/JL] assess if we actually need to gather all this data from the sensor
@@ -428,25 +439,25 @@ void BNO_task(void *pvParameter) {
         imu::Quaternion quat = BNO.getQuat();
 
         //save sensor data and add it to queue
-        currentMessage.quaternion[0] = quat.w();
-        currentMessage.quaternion[1] = quat.x();
-        currentMessage.quaternion[2] = quat.y();
-        currentMessage.quaternion[3] = quat.z();
+        currentMessage.BNOMessage.quaternion[0] = quat.w();
+        currentMessage.BNOMessage.quaternion[1] = quat.x();
+        currentMessage.BNOMessage.quaternion[2] = quat.y();
+        currentMessage.BNOMessage.quaternion[3] = quat.z();
 
-        currentMessage.euler_orientation[0] = angVelocityData.gyro.x;
-        currentMessage.euler_orientation[1] = angVelocityData.gyro.y;
-        currentMessage.euler_orientation[2] = angVelocityData.gyro.z;
+        currentMessage.BNOMessage.euler_orientation[0] = angVelocityData.gyro.x;
+        currentMessage.BNOMessage.euler_orientation[1] = angVelocityData.gyro.y;
+        currentMessage.BNOMessage.euler_orientation[2] = angVelocityData.gyro.z;
 
-        currentMessage.magnetometer[0] = magnetometerData.magnetic.x;
-        currentMessage.magnetometer[1] = magnetometerData.magnetic.y;
-        currentMessage.magnetometer[2] = magnetometerData.magnetic.z;
+        currentMessage.BNOMessage.magnetometer[0] = magnetometerData.magnetic.x;
+        currentMessage.BNOMessage.magnetometer[1] = magnetometerData.magnetic.y;
+        currentMessage.BNOMessage.magnetometer[2] = magnetometerData.magnetic.z;
 
-        currentMessage.acceleration[0] = accelerometerData.acceleration.x;
-        currentMessage.acceleration[1] = accelerometerData.acceleration.y;
-        currentMessage.acceleration[2] = accelerometerData.acceleration.z;
+        currentMessage.BNOMessage.acceleration[0] = accelerometerData.acceleration.x;
+        currentMessage.BNOMessage.acceleration[1] = accelerometerData.acceleration.y;
+        currentMessage.BNOMessage.acceleration[2] = accelerometerData.acceleration.z;
 
         //write message to queue
-        xQueueSendToBack(GDQ.BNO, &currentMessage, 0);
+        xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
         GDQ.LatestBNOMsg = currentMessage;
 
         endTime = millis();
@@ -475,7 +486,7 @@ void BNO_task(void *pvParameter) {
 
 void LSM_task(void *pvParameter) {
 
-    LSMMessage_t currentMessage = {0};
+    GDQMessage_t currentMessage = {0};
 
     TickType_t uptime;
     uint32_t startTime;
@@ -500,19 +511,19 @@ void LSM_task(void *pvParameter) {
             }
 
             // adds data to LSM struct
-            currentMessage.acceleration[0] = accel.acceleration.x;
-            currentMessage.acceleration[1] = accel.acceleration.y;
-            currentMessage.acceleration[2] = accel.acceleration.z;
+            currentMessage.LSMMessage.acceleration[0] = accel.acceleration.x;
+            currentMessage.LSMMessage.acceleration[1] = accel.acceleration.y;
+            currentMessage.LSMMessage.acceleration[2] = accel.acceleration.z;
 
-            currentMessage.gyro[0] = gyro.gyro.x;
-            currentMessage.gyro[1] = gyro.gyro.y;
-            currentMessage.gyro[2] = gyro.gyro.z;
+            currentMessage.LSMMessage.gyro[0] = gyro.gyro.x;
+            currentMessage.LSMMessage.gyro[1] = gyro.gyro.y;
+            currentMessage.LSMMessage.gyro[2] = gyro.gyro.z;
 
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
 
             // writes data to queue
-            if(xQueueSendToBack(GDQ.LSM, &currentMessage, 0) != pdTRUE)
+            if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
             {
                 printf("LSM Lost Packet!\n");
             }
@@ -547,7 +558,7 @@ void BMP_task(void *pvParameter) {
     static TickType_t upTime;
     static uint32_t startTime, endTime;
     //initialize struct
-    BMPMessage_t currentMessage = {0};
+    GDQMessage_t currentMessage = {0};
     while(1) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
@@ -565,9 +576,9 @@ void BMP_task(void *pvParameter) {
                 // TODO: [NS] add calibration
 
                 // adds data to struct
-                currentMessage.temp = bmp_temp;
-                currentMessage.pressure = bmp_press;
-                currentMessage.altitude = bmp_alt;
+                currentMessage.BMPMessage.temp = bmp_temp;
+                currentMessage.BMPMessage.pressure = bmp_press;
+                currentMessage.BMPMessage.altitude = bmp_alt;
 
                 // writes data to queue
                 xQueueSendToBack(GDQ.BMP, &currentMessage, 0);
@@ -601,10 +612,7 @@ void SD_task(void *pvParameter)
     static char msgBuf[5096];
     static size_t index;
 
-    static ADXLMessage_t adxlMsg;
-    static BNOMessage_t bnoMsg;
-    static LSMMessage_t lsmMsg;
-    static BMPMessage_t bmpMsg;
+    static GDQMessage_t currentMessage;
 
     // TODO: [NS] make these #defines
 
@@ -620,59 +628,51 @@ void SD_task(void *pvParameter)
 
     while(1)
     {
-
+        // block task until queue has data
+        currentMessage = xQueueReceive(GDQ.sensors, portMAX_DELAY);
         TickType_t startTime = millis();
-        // if ADXL queue isn't empty,
-        // figure out how many messages we could write into the buffer
-        while((index + sizeof(ADXLMessage_t) + ADXL_OVERHEAD_SZ < 5096)
-            && uxQueueMessagesWaiting(GDQ.ADXL) != 0)
-        {
-            xQueueReceive(GDQ.ADXL, &adxlMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+
+        switch(currentMessage.sensor) {
+            case SENSOR_ADXL:
+                index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "0,%lu,%f,%f,%f\n",
                      adxlMsg.time,
                      adxlMsg.acceleration[0], adxlMsg.acceleration[1], adxlMsg.acceleration[2]
-            );
-        }
-
-        while((index + sizeof(BNOMessage_t) + BNO_OVERHEAD_SZ < 5096)
-            && uxQueueMessagesWaiting(GDQ.BNO) != 0)
-        {
-            xQueueReceive(GDQ.BNO, &bnoMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+                );
+                break;
+            case SENSOR_BNO:
+                index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "1,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
                       bnoMsg.uptime,
                       bnoMsg.quaternion[0], bnoMsg.quaternion[1], bnoMsg.quaternion[2], bnoMsg.quaternion[3],
                       bnoMsg.acceleration[0], bnoMsg.acceleration[1], bnoMsg.acceleration[2],
                       bnoMsg.euler_orientation[0], bnoMsg.euler_orientation[1], bnoMsg.euler_orientation[2],
                       bnoMsg.magnetometer[0], bnoMsg.magnetometer[1], bnoMsg.magnetometer[2]
-            );
-        }
+                );
+                break;
 
-        while((index + sizeof(LSMMessage_t) + LSM_OVERHEAD_SZ < 5096)
-            && uxQueueMessagesWaiting(GDQ.BNO) != 0)
-        {
-            xQueueReceive(GDQ.LSM, &lsmMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+            case SENSOR_LSM:
+                index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "2,%lu,%f,%f,%f,%f,%f,%f\n",
                      lsmMsg.time,
                      lsmMsg.acceleration[0], lsmMsg.acceleration[1], lsmMsg.acceleration[2],
                      lsmMsg.gyro[0], lsmMsg.gyro[1], lsmMsg.gyro[2]
-            );
-        }
-
-        while((index + sizeof(BMPMessage_t) + BMP_OVERHEAD_SZ < 5096)
-            && uxQueueMessagesWaiting(GDQ.BMP) != 0)
-        {
-            xQueueReceive(GDQ.BMP, &bmpMsg, 0);
-            index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
+                );
+                break;
+            case SENSOR_BMP:
+                index += snprintf(msgBuf + index, sizeof(msgBuf) - index,
                      "3,%lu,%f,%f,%f\n",
                      bmpMsg.time,
                      bmpMsg.temp,
                      bmpMsg.pressure,
                      bmpMsg.altitude
-            );
+                );
+                break;
         }
+
+        // if(index == 5095) {
+        //     vTaskDelay()
+        // }
 
         // print buffer
         sdData.print(msgBuf);
