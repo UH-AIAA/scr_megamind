@@ -276,47 +276,47 @@ extern "C" void app_main()
         "SD_task",
         8000,
         NULL,
-        5,
+        4,
         NULL,
         1
     );
 
-    // xTaskCreatePinnedToCore(
-    //     ADXL_task,
-    //     "ADXL_task",
-    //     5000,
-    //     NULL,
-    //     5,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        ADXL_task,
+        "ADXL_task",
+        5000,
+        NULL,
+        5,
+        NULL,
+        0
+    );
 
-    // xTaskCreatePinnedToCore(
-    //     BNO_task,
-    //     "BNO_task",
-    //     5000,
-    //     NULL,
-    //     2,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        BNO_task,
+        "BNO_task",
+        5000,
+        NULL,
+        2,
+        NULL,
+        0
+    );
 
-    // xTaskCreatePinnedToCore(
-    //     LSM_task,
-    //     "LSM_task",
-    //     5000,
-    //     NULL,
-    //     3,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        LSM_task,
+        "LSM_task",
+        5000,
+        NULL,
+        3,
+        NULL,
+        0
+    );
 
-    // xTaskCreatePinnedToCore(
-    //     BMP_task,
-    //     "BMP_task", 5000, NULL, 4,
-    //     NULL,
-    //     0
-    // );
+    xTaskCreatePinnedToCore(
+        BMP_task,
+        "BMP_task", 5000, NULL, 4,
+        NULL,
+        0
+    );
 }
 
 void GPS_task(void *pvParameter) {
@@ -367,13 +367,18 @@ void GPS_task(void *pvParameter) {
             }
         }
 
+        printf("GPS READ FAILED!\n");
+
         end:
             uint32_t endms = millis();
             uint32_t spentms = endms - startms;
             printf("Millis: %lu\n", endms);
             printf("Task took %lu ms to complete.\n\n", spentms);
-            uint32_t delayms = std::min(200 - spentms, static_cast<uint32_t>(10));
-            vTaskDelay(delayms);
+            if (spentms < 200) {
+                vTaskDelay(pdMS_TO_TICKS(200 - spentms));
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            } 
     }
 }
 
@@ -669,7 +674,7 @@ void SD_task(void *pvParameter)
         switch(currentMessage.sensor) {
             case SENSOR_GPS:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%i,%f,%f,%c,%c,%f",
+                     "%i,%lu,%i,%f,%f,%c,%c,%f\n",
                      SENSOR_GPS,
                      currentMessage.GPSMessage.time,
                      currentMessage.GPSMessage.satellites,
@@ -710,7 +715,7 @@ void SD_task(void *pvParameter)
             case SENSOR_BMP:
                 n += snprintf(msgBuf + index, remaining,
                      "%i,%lu,%f,%f,%f\n",
-                     SENSOR_LSM,
+                     SENSOR_BMP,
                      currentMessage.BMPMessage.time,
                      currentMessage.BMPMessage.temp,
                      currentMessage.BMPMessage.pressure,
