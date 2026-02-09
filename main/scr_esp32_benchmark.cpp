@@ -111,10 +111,11 @@ typedef struct BMPMessage {
 }BMPMessage_t;
 
 typedef enum SensorType {
-    SENSOR_ADXL = 0,
-    SENSOR_BNO  = 1,
-    SENSOR_LSM  = 2,
-    SENSOR_BMP  = 3,
+    SENSOR_GPS = 0,
+    SENSOR_ADXL = 1,
+    SENSOR_BNO  = 2,
+    SENSOR_LSM  = 3,
+    SENSOR_BMP  = 4,
 } SensorType_t;
 
 typedef struct GDQMessage {
@@ -122,6 +123,7 @@ typedef struct GDQMessage {
     SensorType_t sensor;
 
     union {
+        GPSMessage_t GPSMessage;
         ADXLMessage_t ADXLMessage;
         BNOMessage_t BNOMessage;
         LSMMessage_t LSMMessage;
@@ -274,7 +276,7 @@ extern "C" void app_main()
         "SD_task",
         8000,
         NULL,
-        5,
+        4,
         NULL,
         1
     );
@@ -318,6 +320,9 @@ extern "C" void app_main()
 }
 
 void GPS_task(void *pvParameter) {
+    GDQMessage_t currentMessage = {
+        .sensor = SENSOR_GPS,
+    };
     while(true){
         uint32_t startms = millis();
         uint32_t timeout = startms + 200;
@@ -343,15 +348,17 @@ void GPS_task(void *pvParameter) {
                         //printf("Speed (knots): %f\n" GPS.speed);
 
                         // add data to struct
-                        GDQ.LatestGPSMsg.satellites = GPS.satellites;
-                        GDQ.LatestGPSMsg.latitude = GPS.latitude;
-                        GDQ.LatestGPSMsg.longitude = GPS.longitude;
-                        GDQ.LatestGPSMsg.lat = GPS.lat;
-                        GDQ.LatestGPSMsg.lon = GPS.lon;
-                        GDQ.LatestGPSMsg.altitude = GPS.altitude;
+                        currentMessage.GPSMessage.time = startms;
+                        currentMessage.GPSMessage.satellites = GPS.satellites;
+                        currentMessage.GPSMessage.latitude = GPS.latitude;
+                        currentMessage.GPSMessage.longitude = GPS.longitude;
+                        currentMessage.GPSMessage.lat = GPS.lat;
+                        currentMessage.GPSMessage.lon = GPS.lon;
+                        currentMessage.GPSMessage.altitude = GPS.altitude;
 
                         //write message to queue
-
+                        GDQ.LatestGPSMsg = currentMessage.GPSMessage;
+                        xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
                         // if we found data, go to end of function
                         // we don't want to print out the same data multiple times
                         goto end;
@@ -360,13 +367,18 @@ void GPS_task(void *pvParameter) {
             }
         }
 
+        printf("GPS READ FAILED!\n");
+
         end:
             uint32_t endms = millis();
             uint32_t spentms = endms - startms;
             printf("Millis: %lu\n", endms);
             printf("Task took %lu ms to complete.\n\n", spentms);
-            uint32_t delayms = std::min(200 - spentms, static_cast<uint32_t>(10));
-            vTaskDelay(delayms);
+            if (spentms < 200) {
+                vTaskDelay(pdMS_TO_TICKS(200 - spentms));
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(10));
+            } 
     }
 }
 
@@ -660,27 +672,41 @@ void SD_task(void *pvParameter)
         remaining = sizeof(msgBuf) - index;
 
         switch(currentMessage.sensor) {
+            case SENSOR_GPS:
+                n += snprintf(msgBuf + index, remaining,
+                     "%i,%lu,%i,%f,%f,%c,%c,%f\n",
+                     SENSOR_GPS,
+                     currentMessage.GPSMessage.time,
+                     currentMessage.GPSMessage.satellites,
+                     currentMessage.GPSMessage.latitude, currentMessage.GPSMessage.longitude,
+                     currentMessage.GPSMessage.lat, currentMessage.GPSMessage.lon,
+                     currentMessage.GPSMessage.altitude
+                );
+                break;
             case SENSOR_ADXL:
                 n += snprintf(msgBuf + index, remaining,
-                     "0,%lu,%f,%f,%f\n",
+                     "%i,%lu,%f,%f,%f\n",
+                     SENSOR_ADXL,
                      currentMessage.ADXLMessage.time,
                      currentMessage.ADXLMessage.acceleration[0], currentMessage.ADXLMessage.acceleration[1], currentMessage.ADXLMessage.acceleration[2]
                 );
                 break;
             case SENSOR_BNO:
                 n += snprintf(msgBuf + index, remaining,
-                     "1,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
-                      currentMessage.BNOMessage.uptime,
-                      currentMessage.BNOMessage.quaternion[0], currentMessage.BNOMessage.quaternion[1], currentMessage.BNOMessage.quaternion[2], currentMessage.BNOMessage.quaternion[3],
-                      currentMessage.BNOMessage.acceleration[0], currentMessage.BNOMessage.acceleration[1], currentMessage.BNOMessage.acceleration[2],
-                      currentMessage.BNOMessage.euler_orientation[0], currentMessage.BNOMessage.euler_orientation[1], currentMessage.BNOMessage.euler_orientation[2],
-                      currentMessage.BNOMessage.magnetometer[0], currentMessage.BNOMessage.magnetometer[1], currentMessage.BNOMessage.magnetometer[2]
+                     "%i,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                     SENSOR_BNO,
+                     currentMessage.BNOMessage.uptime,
+                     currentMessage.BNOMessage.quaternion[0], currentMessage.BNOMessage.quaternion[1], currentMessage.BNOMessage.quaternion[2], currentMessage.BNOMessage.quaternion[3],
+                     currentMessage.BNOMessage.acceleration[0], currentMessage.BNOMessage.acceleration[1], currentMessage.BNOMessage.acceleration[2],
+                     currentMessage.BNOMessage.euler_orientation[0], currentMessage.BNOMessage.euler_orientation[1], currentMessage.BNOMessage.euler_orientation[2],
+                     currentMessage.BNOMessage.magnetometer[0], currentMessage.BNOMessage.magnetometer[1], currentMessage.BNOMessage.magnetometer[2]
                 );
                 break;
 
             case SENSOR_LSM:
                 n += snprintf(msgBuf + index, remaining,
-                     "2,%lu,%f,%f,%f,%f,%f,%f\n",
+                     "%i,%lu,%f,%f,%f,%f,%f,%f\n",
+                     SENSOR_LSM,
                      currentMessage.LSMMessage.time,
                      currentMessage.LSMMessage.acceleration[0], currentMessage.LSMMessage.acceleration[1], currentMessage.LSMMessage.acceleration[2],
                      currentMessage.LSMMessage.gyro[0], currentMessage.LSMMessage.gyro[1], currentMessage.LSMMessage.gyro[2]
@@ -688,7 +714,8 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_BMP:
                 n += snprintf(msgBuf + index, remaining,
-                     "3,%lu,%f,%f,%f\n",
+                     "%i,%lu,%f,%f,%f\n",
+                     SENSOR_BMP,
                      currentMessage.BMPMessage.time,
                      currentMessage.BMPMessage.temp,
                      currentMessage.BMPMessage.pressure,
@@ -705,13 +732,13 @@ void SD_task(void *pvParameter)
                 sdData.flush();
                 flushCounter = 0;
             }
-            // #ifdef DEBUG
+            #ifdef DEBUG
                 uint32_t endTime = millis();
                 printf("Uptime: %lu\n", uptime);
                 printf("ELAPSED TIME: %lu\n", endTime - startTime);
                 printf("Used Bytes: %lu\n", (unsigned long)index);
                 printf("Queue Length: %lu\n\n", (unsigned long)uxQueueMessagesWaiting(GDQ.SensorQueue));
-            // #endif
+            #endif
 
             // reset buffer
             index = 0;
