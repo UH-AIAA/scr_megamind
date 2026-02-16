@@ -75,6 +75,7 @@ const char header[24] = "sensor_code,time,packet";
 
 //SPI mutex
 static SemaphoreHandle_t sensor_spi_mutex;
+static SemaphoreHandle_t sd_lora_spi_mutex;
 
 // SENSOR DATA TYPES
 typedef struct ADXLMessage {
@@ -109,6 +110,30 @@ typedef struct BMPMessage {
     uint32_t time;
     float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
 }BMPMessage_t;
+
+typedef struct LORAMessage {
+    uint32_t ADXL_time;
+    uint16_t ADXL_accel[3];
+
+    uint32_t BNO_time;
+    uint16_t BNO_quat[4];
+    uint16_t BNO_euler[3];
+    uint16_t BNO_magnet[3];
+    uint16_t BNO_accel[3];
+    
+    uint32_t LSM_time;
+    uint16_t LSM_accel[3];
+    uint16_t LSM_gyro[3];
+
+    uint32_t BMP_time;
+    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
+
+    uint32_t GPS_time;
+    uint8_t GPS_sat;
+    uint16_t GPS_lon, GPS_lat;
+    char GPS_lon_dir, GPS_lat_dir;
+    uint16_t GPS_alt;
+} LORAMessage_t;
 
 typedef enum SensorType {
     SENSOR_GPS = 0,
@@ -171,9 +196,9 @@ void init_spi() {
     // TODO: [DA] - configure ADXL acceleration range based off of acceleration curve
     
     // LORA setup (Thanh's work!)
-    // LoRa.setSPI(SPI2);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    // LoRa.begin(LORA_FREQ);
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    LoRa.begin(LORA_FREQ);
 
     // SD setup
     if(!SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
@@ -229,6 +254,7 @@ void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 void SD_task(void *pvParameter);
+void LORA_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -249,6 +275,7 @@ extern "C" void app_main()
 
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
+    sd_lora_spi_mutex = xSemaphoreCreateMutex();
 
     // sample task for your convenience
 /*    xTaskCreate(
@@ -379,6 +406,9 @@ void GPS_task(void *pvParameter) {
             } else {
                 vTaskDelay(pdMS_TO_TICKS(10));
             } 
+            
+            // TODO: [NS] make LORA_task eligible to run
+            // vTaskResume(LORA_task);
     }
 }
 
@@ -663,6 +693,8 @@ void SD_task(void *pvParameter)
     while(1)
     {
         // TODO: [NS] SD SPI Mutex
+        xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
+
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
@@ -740,6 +772,8 @@ void SD_task(void *pvParameter)
                 printf("Queue Length: %lu\n\n", (unsigned long)uxQueueMessagesWaiting(GDQ.SensorQueue));
             #endif
 
+            xSemaphoreGive(sd_lora_spi_mutex);
+
             // reset buffer
             index = 0;
             n = 0;
@@ -748,5 +782,62 @@ void SD_task(void *pvParameter)
         } else {
             index += n;
         }
+    }
+}
+
+void LORA_task(void *pvParameter)
+{
+    static TickType_t uptime;
+    static uint32_t startTime, endTime;
+    static LORAMessage_t currentMessage;
+    while (1)
+    {
+        if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            uptime = xTaskGetTickCount();
+            startTime = millis();
+
+            // compress to current message
+            currentMessage.ADXL_time = GDQ.LatestADXLMsg.time;
+            currentMessage.ADXL_accel[0] = (uint16_t)(GDQ.LatestADXLMsg.acceleration[0] * 1000);
+            currentMessage.ADXL_accel[1] = (uint16_t)(GDQ.LatestADXLMsg.acceleration[1] * 1000);
+            currentMessage.ADXL_accel[2] = (uint16_t)(GDQ.LatestADXLMsg.acceleration[2] * 1000);
+
+            currentMessage.BNO_time = GDQ.LatestBNOMsg.uptime;
+            currentMessage.BNO_quat[0] = (uint16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
+            currentMessage.BNO_quat[1] = (uint16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
+            currentMessage.BNO_quat[2] = (uint16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
+            currentMessage.BNO_quat[3] = (uint16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+         
+            currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
+            currentMessage.LSM_accel[0] = (uint16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
+            currentMessage.LSM_accel[1] = (uint16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
+            currentMessage.LSM_accel[2] = (uint16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
+
+            currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
+            currentMessage.BMP_temp = (uint16_t)(GDQ.LatestBMPMsg.temp);
+            currentMessage.BMP_pressure = (uint16_t)(GDQ.LatestBMPMsg.pressure);
+            currentMessage.BMP_altitude = (uint16_t)(GDQ.LatestBMPMsg.altitude * 1000);
+
+            currentMessage.GPS_time = GDQ.LatestGPSMsg.time;
+            currentMessage.GPS_sat = (uint8_t)(GDQ.LatestGPSMsg.satellites);
+            currentMessage.GPS_lat = (uint16_t)(GDQ.LatestGPSMsg.latitude);
+            currentMessage.GPS_lon = (uint16_t)(GDQ.LatestGPSMsg.longitude);
+            currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
+            currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
+
+            // write packet!
+            LoRa.beginPacket();
+            LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
+            LoRa.endPacket();
+
+            xSemaphoreGive(sd_lora_spi_mutex);
+
+            endTime = millis();
+
+        }
+
+        // TODO: [NS] make task ineligible
+        vTaskSuspend(NULL);
     }
 }
