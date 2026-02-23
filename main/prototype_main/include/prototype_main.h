@@ -31,18 +31,20 @@ typedef struct{
       uint8_t gps_sats = 0;
       float gps_lat, gps_long, gps_alt = 0;
 
-      bool spi1_ok = false;
-      bool spi2_ok = false;
-      bool i2c_ok = false;
-      bool bmp_ok = false;
-      bool adxl_ok = false;
-      bool lsm_ok = false;
-      bool bno_ok = false;
-      bool gpsFix_ok = false;
-      bool sd_ok = false;
-      bool lora_ok = false;
 
-      uint8_t flightState = 0;
+
+      bool spi1_ok: 1 = 0;
+      bool spi2_ok: 1 = 0;
+      bool i2c_ok: 1 = 0;
+      bool bmp_ok: 1 = 0;
+      bool adxl_ok: 1 = 0;
+      bool lsm_ok: 1 = 0;
+      bool bno_ok: 1 = 0;
+      bool gpsFix_ok: 1 = 0;
+      bool sd_ok: 1 = 0;
+      bool lora_ok: 1 = 0;
+
+      unsigned int flightState: 4 = 0;
       float bmp_apogee_record = 0;
 } OutputData_t; 
 

@@ -115,7 +115,7 @@ File                sdData;
 
 void init_spi() {
     /// Initialize SPI bus for BMP + ADXL + LSM
-    gOutputData.spi1_ok = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
+    gOutputData.spi1_ok = (SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1)? 1 : 0);
     /// Initialize BMP
     BMP.begin(BMP581_CS, &SPI);
     /// Initialize ADXL
@@ -125,7 +125,7 @@ void init_spi() {
     // TODO: [MEMBERS]: add LSM data rate config
 
     /// Initialize SPI bus for SD + Lora
-    gOutputData.spi2_ok = SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1);
+    gOutputData.spi2_ok = (SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)? 1 : 0);
     /// Initialize SD
     gHasSD = SD.begin(SD_CS, SPI2, SD_RATE);
     /// Set pins & Initialize Lora to defined frequency
@@ -136,7 +136,7 @@ void init_spi() {
 
 void init_I2C() {
     /// Initialize I2C bus for BNO + GPS
-    gOutputData.i2c_ok = Wire.begin(I2C_SDA, I2C_SCL);
+    gOutputData.i2c_ok = (Wire.begin(I2C_SDA, I2C_SCL)? 1 : 0);
     /// Initialize BNO
     BNO.begin();
 }
@@ -180,7 +180,7 @@ void Core0_BMP_task(void *pvParameter) {
     while (1) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.bmp_ok = BMP.performReading();
+            gOutputData.bmp_ok = (BMP.performReading()? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
             if (gOutputData.bmp_ok) {
@@ -243,7 +243,7 @@ void Core0_ADXL_task(void *pvParameter) {
         /// ADXL function + calibrations
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.adxl_ok = ADXL.getEvent(&gEventADXL);
+            gOutputData.adxl_ok = (ADXL.getEvent(&gEventADXL)? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
             if (gOutputData.adxl_ok) {
@@ -276,7 +276,7 @@ void Core0_LSM_task(void *pvParameter) {
     while (1) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.lsm_ok = LSM.getEvent(&gEventLSM_accel, &gEventLSM_gyro, &gEventLSM_temp);
+            gOutputData.lsm_ok = (LSM.getEvent(&gEventLSM_accel, &gEventLSM_gyro, &gEventLSM_temp)? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
             if (gOutputData.lsm_ok) {
@@ -419,23 +419,23 @@ void Core0_stateMachine(void *pvParameter){
 
 void Core1_BNO_task(void *pvParameter) {
     while (1) {
-        bool m_orient_ok = false;
-        bool m_gyro_ok   = false;
-        bool m_mag_ok    = false;
-        bool m_accel_ok  = false;
+        bool m_orient_ok: 1 = 0;
+        bool m_gyro_ok: 1 = 0;
+        bool m_mag_ok: 1 = 0;
+        bool m_accel_ok: 1 = 0;
 
         if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
             /// Return boolean values into holder variables
-            m_orient_ok = BNO.getEvent(&gOrientation,    Adafruit_BNO055::VECTOR_EULER);
-            m_gyro_ok   = BNO.getEvent(&gAngVelocity, Adafruit_BNO055::VECTOR_GYROSCOPE);
-            m_mag_ok    = BNO.getEvent(&gMagnetometer,    Adafruit_BNO055::VECTOR_MAGNETOMETER);
-            m_accel_ok  = BNO.getEvent(&gAccelerometer,  Adafruit_BNO055::VECTOR_ACCELEROMETER);
+            m_orient_ok = (BNO.getEvent(&gOrientation,    Adafruit_BNO055::VECTOR_EULER)? 1 : 0);
+            m_gyro_ok   = (BNO.getEvent(&gAngVelocity, Adafruit_BNO055::VECTOR_GYROSCOPE)? 1 : 0);
+            m_mag_ok    = (BNO.getEvent(&gMagnetometer,    Adafruit_BNO055::VECTOR_MAGNETOMETER)? 1 : 0);
+            m_accel_ok  = (BNO.getEvent(&gAccelerometer,  Adafruit_BNO055::VECTOR_ACCELEROMETER)? 1 : 0);
             // quaternion also uses I2C, so keep it inside the lock
             gQuaternion = BNO.getQuat();
             xSemaphoreGive(gI2cMutex);
             /// Check if all BNO data is ok
-            gOutputData.bno_ok = m_orient_ok && m_gyro_ok && m_mag_ok && m_accel_ok;
+            gOutputData.bno_ok = (m_orient_ok && m_gyro_ok && m_mag_ok && m_accel_ok)? 1 : 0;
             if (gOutputData.bno_ok) {
                 /// Save read data into telemetry struct
                 gOutputData.bno_quar_w = gQuaternion.w();
@@ -503,7 +503,7 @@ void Core1_BNO_task(void *pvParameter) {
 // TODO: [NS] look at safety structures in this function
 void Core1_GPS_task(void *pvParameter) {
         uint8_t m_bytes_processed = 0;
-        bool  m_got_fix     = false;
+        bool  m_got_fix: 1 = 0;
         uint32_t cycle_start = millis();
         // TODO: [NS] make 200ms a #define constant
         uint32_t m_timeout = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
