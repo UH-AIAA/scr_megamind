@@ -214,20 +214,20 @@ void init_spi() {
         }
     }
 
+    // NOTE: temporarily uncommented this for fried module
     // TODO: update file name with RTC input once configured
-    sdData = SD.open("/newName.csv", FILE_WRITE);
-    if(!sdData) {
-        while(1) {
-            printf("SD FILE FAILED\n");
-        }
-    }
-    sdData.println(header);
-    // sdData.close();
+    // sdData = SD.open("/newName.csv", FILE_WRITE);
+    // if(!sdData) {
+    //     while(1) {
+    //         printf("SD FILE FAILED\n");
+    //     }
+    // }
+    // sdData.println(header);
 
     // LORA setup (Thanh's work!)
-    // LoRa.setSPI(SPI2);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    // LoRa.begin(LORA_FREQ);
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    LoRa.begin(LORA_FREQ);
 }
 
 void init_I2C() {
@@ -304,15 +304,16 @@ extern "C" void app_main()
         1
     );
 
-    xTaskCreatePinnedToCore(
-        SD_task,
-        "SD_task",
-        8000,
-        NULL,
-        4,
-        NULL,
-        1
-    );
+    // NOTE: temporarily commented out while waiting for new SD chip
+    // xTaskCreatePinnedToCore(
+    //     SD_task,
+    //     "SD_task",
+    //     8000,
+    //     NULL,
+    //     4,
+    //     NULL,
+    //     1
+    // );
 
     xTaskCreatePinnedToCore(
         LORA_task,
@@ -608,7 +609,8 @@ void LSM_task(void *pvParameter) {
             // writes data to queue
             if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
             {
-                printf("LSM Lost Packet!\n");
+                // NOTE: temporarily commented out for work on unstable branch
+                // printf("LSM Lost Packet!\n");
             }
             GDQ.LatestLSMMsg = currentMessage.LSMMessage;
 
