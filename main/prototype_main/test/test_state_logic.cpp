@@ -4,8 +4,8 @@
 
 /// ----------------------IDLE to ASCEND test------------------///
 TEST(StateMachineTest, AdxlIdleToDescendOk) {
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -25,8 +25,8 @@ TEST(StateMachineTest, AdxlIdleToDescendOk) {
 }
 
 TEST(StateMachineTest, AdxlIdleToAscendMagnitudeDropFail){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -42,8 +42,8 @@ TEST(StateMachineTest, AdxlIdleToAscendMagnitudeDropFail){
 }
 
 TEST(StateMachineTest, LsmIdleToDescendOk) {
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -68,8 +68,8 @@ TEST(StateMachineTest, LsmIdleToDescendOk) {
 }
 
 TEST(StateMachineTest, LSMIdleToAscendFailMagnitudeDropFail){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -87,8 +87,8 @@ TEST(StateMachineTest, LSMIdleToAscendFailMagnitudeDropFail){
 }
 
 TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmOkFull){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -108,8 +108,8 @@ TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmOkFull){
 }
 
 TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmFailMidway){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -131,8 +131,8 @@ TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmFailMidway){
 }
 
 TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmMagnitudeSpike){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -154,8 +154,8 @@ TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmMagnitudeSpike){
 }
 
 TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmMagnitudeSpike){
-    OutputData_t OutputData;
-    MagnitudeData_t MagnitudeData;
+    OutputData_t OutputData = {0};
+    MagnitudeData_t MagnitudeData = {0};
     uint8_t counter_state_change = 0;
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
@@ -178,7 +178,7 @@ TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmMagnitudeSpike){
 
 /// ----------------------Apogee/ASCEND to DESCEND test------------------///
 TEST(StateMachineTest, BMPUpdatePeakValidData){
-    OutputData_t OutputData;
+    OutputData_t OutputData = {0};
     float mock_bmp_altitude[3] = {5,11,16.5}; 
     float mock_bmp_delta_alt[3] = {5,6,5.5};
     float bmp_peak_altitude = 0;
@@ -193,7 +193,7 @@ TEST(StateMachineTest, BMPUpdatePeakValidData){
 }
 
 TEST(StateMachineTest, BMPUpdatePeakInvalidData){
-    OutputData_t OutputData;
+    OutputData_t OutputData = {0};
     float mock_bmp_altitude[3] = {5,11,21.8}; 
     float mock_bmp_delta_alt[3] = {5,6,10.8};
     float bmp_peak_altitude = 0;
@@ -208,7 +208,7 @@ TEST(StateMachineTest, BMPUpdatePeakInvalidData){
 }
 
 TEST(StateMachineTest, BMPStateChangeOkValidData){
-    OutputData_t OutputData;
+    OutputData_t OutputData = {0};
     float mock_bmp_altitude[15] = {10,20,30,40,50,60,70,80,90,95,85,75,65,55,50}; 
     float mock_bmp_delta_alt[15] = {10,10,10,10,10,10,10,10,10,5,-10,-10,-10,-10,-5};
     float bmp_peak_altitude = 0;
@@ -224,7 +224,7 @@ TEST(StateMachineTest, BMPStateChangeOkValidData){
 }
 
 TEST(StateMachineTest, BMPStateChangeFailInvalidDataDrop){
-    OutputData_t OutputData;
+    OutputData_t OutputData = {0};
     float mock_bmp_altitude[17] = {10,20,30,40,50,60,70,80,90,95,85,75,65,55,100,105}; 
     float mock_bmp_delta_alt[17] = {10,10,10,10,10,10,10,10,10,5,-10,-10,-10,-10,45,5};
     float bmp_peak_altitude = 0;

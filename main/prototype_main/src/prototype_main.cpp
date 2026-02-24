@@ -32,12 +32,12 @@
     gOrientation to gAcceleromter: global output for BNO
     gQuarternion:                  quaternion output for BNO
 */
-OutputData_t    gOutputData; 
-MagnitudeData_t gMagnitudeData;
-ADXLCalibrate_t gADXLCalibrateVars;
-sensors_event_t gEventADXL; 
-sensors_event_t gEventLSM_accel, gEventLSM_gyro, gEventLSM_temp; 
-sensors_event_t gOrientation, gAngVelocity, gMagnetometer, gAccelerometer; 
+OutputData_t    gOutputData = {0}; 
+MagnitudeData_t gMagnitudeData = {0};
+ADXLCalibrate_t gADXLCalibrateVars = {0};
+sensors_event_t gEventADXL = {0}; 
+sensors_event_t gEventLSM_accel = {0}, gEventLSM_gyro = {0}, gEventLSM_temp = {0}; 
+sensors_event_t gOrientation = {0}, gAngVelocity = {0}, gMagnetometer = {0}, gAccelerometer = {0}; 
 imu::Quaternion gQuaternion; 
 
 /// @brief Sensors helper variables
@@ -419,10 +419,10 @@ void Core0_stateMachine(void *pvParameter){
 
 void Core1_BNO_task(void *pvParameter) {
     while (1) {
-        bool m_orient_ok: 1 = 0;
-        bool m_gyro_ok: 1 = 0;
-        bool m_mag_ok: 1 = 0;
-        bool m_accel_ok: 1 = 0;
+        bool m_orient_ok = 0;
+        bool m_gyro_ok = 0;
+        bool m_mag_ok= 0;
+        bool m_accel_ok = 0;
 
         if (xSemaphoreTake(gI2cMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
@@ -503,7 +503,7 @@ void Core1_BNO_task(void *pvParameter) {
 // TODO: [NS] look at safety structures in this function
 void Core1_GPS_task(void *pvParameter) {
         uint8_t m_bytes_processed = 0;
-        bool  m_got_fix: 1 = 0;
+        bool  m_got_fix = false;
         uint32_t cycle_start = millis();
         // TODO: [NS] make 200ms a #define constant
         uint32_t m_timeout = cycle_start + GPS_TIMEOUT;  // ~200 ms window for this cycle
@@ -568,7 +568,7 @@ void Core1_SD_task(void *pvParameter) {
         if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
             if (gHasSD){
                 sdData = SD.open("/SD_data.txt", FILE_APPEND);
-                gOutputData.sd_ok = sdData;
+                gOutputData.sd_ok = (sdData ? 1 : 0);
                 if (sdData) {
                     if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
                         sdData.println(

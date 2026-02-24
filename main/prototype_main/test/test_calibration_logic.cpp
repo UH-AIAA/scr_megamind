@@ -3,9 +3,9 @@
 #include "../constants/Const.h"
 
 TEST(DataCalibrationTest, ADXLCalibration) {
-    ADXLCalibrate_t ADXLCalibrateVars;
-    MagnitudeData_t MagnitudeData;
-    OutputData_t OutputData;
+    ADXLCalibrate_t ADXLCalibrateVars = {0};
+    MagnitudeData_t MagnitudeData = {0};
+    OutputData_t OutputData = {0};
     float adxl_mock_acc_x[21] = {0,1,2,1,0,1,2,1,0,1,
                                  0,1,2,1,0,1,2,1,0,0,0};
     float adxl_mock_acc_y[21] = {0,1,2,1,0,1,2,1,0,1,

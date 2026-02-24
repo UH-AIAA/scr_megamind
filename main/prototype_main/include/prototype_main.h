@@ -16,36 +16,36 @@
         2. SPI & I2C buses, sensors data and GPS fix validation
         3. Flight State
         4. Apogee
+        Aligning data from largest to smallest size for natural padding and memory optimization
 */
-typedef struct{
-      float bmp_temp, bmp_press, bmp_alt = 0;
-      float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp = 0;
+typedef struct { 
+      float bmp_temp, bmp_press, bmp_alt;
+      float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp;
       float lsm_acc_x, lsm_acc_y, lsm_acc_z,
             lsm_gyro_x, lsm_gyro_y, lsm_gyro_z,
-            lsm_temp = 0;
+            lsm_temp;
       float bno_quar_w, bno_quar_x, bno_quar_y, bno_quar_z,
             bno_acc_x,  bno_acc_y,  bno_acc_z,
             bno_gyro_x, bno_gyro_y, bno_gyro_z,
             bno_mag_x,  bno_mag_y,  bno_mag_z,
-            bno_ori_x,  bno_ori_y,  bno_ori_z = 0;
-      uint8_t gps_sats = 0;
-      float gps_lat, gps_long, gps_alt = 0;
+            bno_ori_x,  bno_ori_y,  bno_ori_z;
 
+      float bmp_apogee_record;
+      float gps_lat, gps_long, gps_alt;
 
+      unsigned int gps_sats: 4;
+      unsigned int flightState: 4;
 
-      bool spi1_ok: 1 = 0;
-      bool spi2_ok: 1 = 0;
-      bool i2c_ok: 1 = 0;
-      bool bmp_ok: 1 = 0;
-      bool adxl_ok: 1 = 0;
-      bool lsm_ok: 1 = 0;
-      bool bno_ok: 1 = 0;
-      bool gpsFix_ok: 1 = 0;
-      bool sd_ok: 1 = 0;
-      bool lora_ok: 1 = 0;
-
-      unsigned int flightState: 4 = 0;
-      float bmp_apogee_record = 0;
+      bool spi1_ok: 1;
+      bool spi2_ok: 1;
+      bool i2c_ok: 1;
+      bool bmp_ok: 1;
+      bool adxl_ok: 1;
+      bool lsm_ok: 1;
+      bool bno_ok: 1;
+      bool gpsFix_ok: 1;
+      bool sd_ok: 1;
+      bool lora_ok: 1;
 } OutputData_t; 
 
 /// @brief Magnitude data struct
@@ -53,9 +53,9 @@ typedef struct{
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
     lsm_accel_magnitude:            Magnitude of LSM data after calibrated
 */
-typedef struct{
-      float adxl_accel_magnitude = 0.0; 
-      float lsm_accel_magnitude = 0.0; 
+typedef struct  {
+      float adxl_accel_magnitude; 
+      float lsm_accel_magnitude; 
 } MagnitudeData_t;
 
 /// @brief Helper variables for ADXL calibration
@@ -68,11 +68,11 @@ typedef struct{
     adxl_accel_magnitude:           Magnitude of ADXL data after calibrated
 */
 typedef struct {
-    float adxl_accel_x_mean = 0.0;
-    float adxl_accel_y_mean = 0.0;
-    float adxl_accel_z_mean = 0.0;
-    uint8_t adxl_bias_samples_count = 0; 
-    bool adxl_bias_mean_founded = false;    
+    float adxl_accel_x_mean;
+    float adxl_accel_y_mean;
+    float adxl_accel_z_mean;
+    uint8_t adxl_bias_samples_count; 
+    bool adxl_bias_mean_founded;    
 } ADXLCalibrate_t;
 
 /// @brief                   BMP task declaration
