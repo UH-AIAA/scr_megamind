@@ -695,7 +695,7 @@ void BMP_task(void *pvParameter) {
 
 void SD_task(void *pvParameter)
 {
-    char msgBuf[5096];
+    char msgBuf[4096];
     size_t index = 0;
     size_t remaining;
     static int n;
