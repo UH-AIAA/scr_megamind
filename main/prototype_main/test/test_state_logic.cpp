@@ -11,7 +11,7 @@ TEST(StateMachineTest, AdxlIdleToDescendOk) {
     float peakAltitude = 0.0;
     OutputData.bmp_alt = 10.0;
     MagnitudeData.adxl_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     OutputData.bmp_alt++;
@@ -31,7 +31,7 @@ TEST(StateMachineTest, AdxlIdleToAscendMagnitudeDropFail){
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
     MagnitudeData.adxl_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
@@ -49,8 +49,8 @@ TEST(StateMachineTest, LsmIdleToDescendOk) {
     float peakAltitude = 0.0;
     OutputData.bmp_alt = 10.0;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = false;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = false;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     OutputData.bmp_alt++;
@@ -74,8 +74,8 @@ TEST(StateMachineTest, LSMIdleToAscendFailMagnitudeDropFail){
     OutputData.flightState = 0;
     float peakAltitude = 0.0;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = false;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = false;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
@@ -94,12 +94,12 @@ TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmOkFull){
     float peakAltitude = 0.0;
     MagnitudeData.adxl_accel_magnitude = 20;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
-    OutputData.adxl_ok = false;
+    OutputData.sensorStatus.adxl_ok = false;
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
@@ -115,14 +115,14 @@ TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmFailMidway){
     float peakAltitude = 0.0;
     MagnitudeData.adxl_accel_magnitude = 20;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
-    OutputData.adxl_ok = false;
+    OutputData.sensorStatus.adxl_ok = false;
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
-    OutputData.lsm_ok = false;
+    OutputData.sensorStatus.lsm_ok = false;
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     EXPECT_NE(OutputData.flightState, 1);
     EXPECT_EQ(counter_state_change, 0);
@@ -138,12 +138,12 @@ TEST(StateMachineTest, IdleToAscendOkAdxlFailMidwayLsmMagnitudeSpike){
     float peakAltitude = 0.0;
     MagnitudeData.adxl_accel_magnitude = 20;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
-    OutputData.adxl_ok = false;
+    OutputData.sensorStatus.adxl_ok = false;
     MagnitudeData.lsm_accel_magnitude = 3000;
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     MagnitudeData.lsm_accel_magnitude = 20;
@@ -161,12 +161,12 @@ TEST(StateMachineTest, IdleToAscendFailAdxlFailMidwayLsmMagnitudeSpike){
     float peakAltitude = 0.0;
     MagnitudeData.adxl_accel_magnitude = 20;
     MagnitudeData.lsm_accel_magnitude = 20;
-    OutputData.adxl_ok = true;
-    OutputData.lsm_ok = true;
+    OutputData.sensorStatus.adxl_ok = true;
+    OutputData.sensorStatus.lsm_ok = true;
 
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
-    OutputData.adxl_ok = false;
+    OutputData.sensorStatus.adxl_ok = false;
     MagnitudeData.lsm_accel_magnitude = 3000;
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
     IdleToAscend(OutputData, MagnitudeData, counter_state_change, peakAltitude);
@@ -183,7 +183,7 @@ TEST(StateMachineTest, BMPUpdatePeakValidData){
     float mock_bmp_delta_alt[3] = {5,6,5.5};
     float bmp_peak_altitude = 0;
     uint8_t counter_state_change = 0;
-    OutputData.bmp_ok = true;
+    OutputData.sensorStatus.bmp_ok = true;
     for (int i = 0; i < 3; i++) {
         OutputData.bmp_alt = mock_bmp_altitude[i];
         AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
@@ -198,7 +198,7 @@ TEST(StateMachineTest, BMPUpdatePeakInvalidData){
     float mock_bmp_delta_alt[3] = {5,6,10.8};
     float bmp_peak_altitude = 0;
     uint8_t counter_state_change = 0;
-    OutputData.bmp_ok = true;
+    OutputData.sensorStatus.bmp_ok = true;
     for (int i = 0; i < 3; i++) {
         OutputData.bmp_alt = mock_bmp_altitude[i];
         AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
@@ -213,7 +213,7 @@ TEST(StateMachineTest, BMPStateChangeOkValidData){
     float mock_bmp_delta_alt[15] = {10,10,10,10,10,10,10,10,10,5,-10,-10,-10,-10,-5};
     float bmp_peak_altitude = 0;
     uint8_t counter_state_change = 0;
-    OutputData.bmp_ok = true;
+    OutputData.sensorStatus.bmp_ok = true;
     for (int i = 0; i < 15; i++) {
         OutputData.bmp_alt = mock_bmp_altitude[i];
         AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);
@@ -230,7 +230,7 @@ TEST(StateMachineTest, BMPStateChangeFailInvalidDataDrop){
     float bmp_peak_altitude = 0;
     uint8_t counter_state_change = 0;
     OutputData.flightState = 1;
-    OutputData.bmp_ok = true;
+    OutputData.sensorStatus.bmp_ok = true;
     for (int i = 0; i < 17; i++) {
         OutputData.bmp_alt = mock_bmp_altitude[i];
         AscendToDescend(OutputData, mock_bmp_delta_alt[i], bmp_peak_altitude, counter_state_change);

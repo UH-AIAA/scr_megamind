@@ -10,6 +10,19 @@
 #include <bitset>
 #include <cmath>
 
+typedef struct {
+      uint8_t spi1_ok: 1;
+      uint8_t spi2_ok: 1;
+      uint8_t i2c_ok: 1;
+      uint8_t bmp_ok: 1;
+      uint8_t adxl_ok: 1;
+      uint8_t lsm_ok: 1;
+      uint8_t bno_ok: 1;
+      uint8_t gpsFix_ok: 1;
+      uint8_t sd_ok: 1;
+      uint8_t lora_ok: 1;
+} SensorStatus_t;
+
 /// @brief 
 /*      
         1. Calibrated Data struct
@@ -18,7 +31,7 @@
         4. Apogee
         Aligning data from largest to smallest size for natural padding and memory optimization
 */
-typedef struct { /// 36 bytes in total - no padding
+typedef struct { /// 139 bytes total + 1 padding bytes = 140 bytes 
       float bmp_temp, bmp_press, bmp_alt;
       float adxl_acc_x, adxl_acc_y, adxl_acc_z, adxl_temp;
       float lsm_acc_x, lsm_acc_y, lsm_acc_z,
@@ -36,17 +49,10 @@ typedef struct { /// 36 bytes in total - no padding
       uint8_t gps_sats: 4;
       uint8_t flightState: 2;
 
-      uint8_t spi1_ok: 1;
-      uint8_t spi2_ok: 1;
-      uint8_t i2c_ok: 1;
-      uint8_t bmp_ok: 1;
-      uint8_t adxl_ok: 1;
-      uint8_t lsm_ok: 1;
-      uint8_t bno_ok: 1;
-      uint8_t gpsFix_ok: 1;
-      uint8_t sd_ok: 1;
-      uint8_t lora_ok: 1;
+      SensorStatus_t sensorStatus; // 2 bytes for sensor status bitfield
+      
 } OutputData_t; 
+
 
 /// @brief Magnitude data struct
 /*

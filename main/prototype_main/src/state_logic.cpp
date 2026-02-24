@@ -2,7 +2,7 @@
 #include "../constants/Const.h"
 
 void IdleToAscend(OutputData_t& gOutputData, MagnitudeData_t& gMagnitudeData, uint8_t& counter, float& peakAltitude) {
-    if (gOutputData.adxl_ok) { /// Check if ADXL ok to use
+    if (gOutputData.sensorStatus.adxl_ok) { /// Check if ADXL ok to use
         if (gMagnitudeData.adxl_accel_magnitude > ASCEND_THRESHOLD) { 
             counter++; 
             if (counter >= REQ_COUNT_STATE_CHANGE){ 
@@ -13,7 +13,7 @@ void IdleToAscend(OutputData_t& gOutputData, MagnitudeData_t& gMagnitudeData, ui
         } else {
             counter = 0; 
         }
-    } else if (gOutputData.adxl_ok == false && gOutputData.lsm_ok == true) { /// If ADXL fails and LSM ok to use
+    } else if (gOutputData.sensorStatus.adxl_ok == false && gOutputData.sensorStatus.lsm_ok == true) { /// If ADXL fails and LSM ok to use
         if (gMagnitudeData.lsm_accel_magnitude > ASCEND_THRESHOLD) { 
             counter++; 
             if (counter > REQ_COUNT_STATE_CHANGE + 1) { //skip bad data frame if exists
@@ -30,7 +30,7 @@ void IdleToAscend(OutputData_t& gOutputData, MagnitudeData_t& gMagnitudeData, ui
 }
 
 void AscendToDescend(OutputData_t& OutputData, float& bmp_altitude_change, float& bmp_peak_altitude, uint8_t& counter) {
-    if (OutputData.bmp_ok) { /// If BMP is ok to use
+    if (OutputData.sensorStatus.bmp_ok) { /// If BMP is ok to use
         if (fabs(bmp_altitude_change) >= BMP_NOISE_THRESHOLD && fabs(bmp_altitude_change) <= BMP_STEP_MAX) { /// If Noise(~0.21) < altitude change < Max possible range means there is actual physical change
             if (OutputData.bmp_alt > bmp_peak_altitude) { /// Check if current altitude > peak
                 bmp_peak_altitude = OutputData.bmp_alt; /// Update peak to current altitude

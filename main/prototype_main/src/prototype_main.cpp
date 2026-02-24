@@ -115,7 +115,7 @@ File                sdData;
 
 void init_spi() {
     /// Initialize SPI bus for BMP + ADXL + LSM
-    gOutputData.spi1_ok = (SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1)? 1 : 0);
+    gOutputData.sensorStatus.spi1_ok = (SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1)? 1 : 0);
     /// Initialize BMP
     BMP.begin(BMP581_CS, &SPI);
     /// Initialize ADXL
@@ -125,7 +125,7 @@ void init_spi() {
     // TODO: [MEMBERS]: add LSM data rate config
 
     /// Initialize SPI bus for SD + Lora
-    gOutputData.spi2_ok = (SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)? 1 : 0);
+    gOutputData.sensorStatus.spi2_ok = (SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)? 1 : 0);
     /// Initialize SD
     gHasSD = SD.begin(SD_CS, SPI2, SD_RATE);
     /// Set pins & Initialize Lora to defined frequency
@@ -136,7 +136,7 @@ void init_spi() {
 
 void init_I2C() {
     /// Initialize I2C bus for BNO + GPS
-    gOutputData.i2c_ok = (Wire.begin(I2C_SDA, I2C_SCL)? 1 : 0);
+    gOutputData.sensorStatus.i2c_ok = (Wire.begin(I2C_SDA, I2C_SCL)? 1 : 0);
     /// Initialize BNO
     BNO.begin();
 }
@@ -180,10 +180,10 @@ void Core0_BMP_task(void *pvParameter) {
     while (1) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.bmp_ok = (BMP.performReading()? 1 : 0);
+            gOutputData.sensorStatus.bmp_ok = (BMP.performReading()? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
-            if (gOutputData.bmp_ok) {
+            if (gOutputData.sensorStatus.bmp_ok) {
                 // calibrate Temperature & save read data to telemetry struct
                 gOutputData.bmp_temp  = BMP.temperature-0.56;
                 gOutputData.bmp_press = BMP.pressure;
@@ -243,10 +243,10 @@ void Core0_ADXL_task(void *pvParameter) {
         /// ADXL function + calibrations
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.adxl_ok = (ADXL.getEvent(&gEventADXL)? 1 : 0);
+            gOutputData.sensorStatus.adxl_ok = (ADXL.getEvent(&gEventADXL)? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
-            if (gOutputData.adxl_ok) {
+            if (gOutputData.sensorStatus.adxl_ok) {
                 /// Save read data into telemetry struct
                 gOutputData.adxl_acc_x = gEventADXL.acceleration.x;
                 gOutputData.adxl_acc_y = gEventADXL.acceleration.y;
@@ -276,10 +276,10 @@ void Core0_LSM_task(void *pvParameter) {
     while (1) {
         if (xSemaphoreTake(gSpiMutex_BAL, pdMS_TO_TICKS(10)) == pdTRUE) {
             upTime = xTaskGetTickCount();
-            gOutputData.lsm_ok = (LSM.getEvent(&gEventLSM_accel, &gEventLSM_gyro, &gEventLSM_temp)? 1 : 0);
+            gOutputData.sensorStatus.lsm_ok = (LSM.getEvent(&gEventLSM_accel, &gEventLSM_gyro, &gEventLSM_temp)? 1 : 0);
             xSemaphoreGive(gSpiMutex_BAL);
 
-            if (gOutputData.lsm_ok) {
+            if (gOutputData.sensorStatus.lsm_ok) {
                 /// Save read data into telemetry struct
                 gOutputData.lsm_acc_x  = gEventLSM_accel.acceleration.x;
                 gOutputData.lsm_acc_y  = gEventLSM_accel.acceleration.y;
@@ -362,28 +362,28 @@ void Core0_stateMachine(void *pvParameter){
                     printf("STATE DESCENDING--------------------------\n");
                 #endif
 
-                if (gOutputData.bmp_ok) { /// If BMP is ok to use
+                if (gOutputData.sensorStatus.bmp_ok) { /// If BMP is ok to use
                     if (gOutputData.bmp_alt < BMP_LAND_THRESHOLD) { /// If current altitude < BMP Land threshold
                         low_altitude = true; /// Set flag of low altitude to true
                     }
                 }
                 /// If ADXL doesn't work, fall back to LSM
-                if (gOutputData.adxl_ok) { /// If ADXL is ok to use
+                if (gOutputData.sensorStatus.adxl_ok) { /// If ADXL is ok to use
                     if (gMagnitudeData.adxl_accel_magnitude < ADXL_LAND_THRESHOLD) { /// If current acceleration magnitude < Magnitude land threshold 
                         low_acceleration = true; /// Set flag of low acceleration to true
                     }
-                } else if (gOutputData.lsm_ok) { /// If ADXL is ok to use
+                } else if (gOutputData.sensorStatus.lsm_ok) { /// If ADXL is ok to use
                     if (gMagnitudeData.lsm_accel_magnitude < LSM_LAND_THRESHOLD) { /// If current acceleration magnitude < Magnitude land threshold 
                         low_acceleration = true; /// Set flag of low acceleration to true
                     }
                 }
 
 
-                if (gOutputData.bmp_ok && (gOutputData.adxl_ok || gOutputData.lsm_ok)) { // If BMP is ok and either ADXL/LSM is ok to use
+                if (gOutputData.sensorStatus.bmp_ok && (gOutputData.sensorStatus.adxl_ok || gOutputData.sensorStatus.lsm_ok)) { // If BMP is ok and either ADXL/LSM is ok to use
                     land_condition = low_altitude && low_acceleration; /// land condition based of the low altitude + low acceleration flag
-                } else if (gOutputData.bmp_ok) { /// If ONLY BMP works
+                } else if (gOutputData.sensorStatus.bmp_ok) { /// If ONLY BMP works
                     land_condition = low_altitude; /// land condition based of the low altitude strictly
-                } else if (gOutputData.adxl_ok || gOutputData.lsm_ok) { // If ONLY ADXL or LSM works
+                } else if (gOutputData.sensorStatus.adxl_ok || gOutputData.sensorStatus.lsm_ok) { // If ONLY ADXL or LSM works
                     land_condition = low_acceleration; /// land condition based of the low acceleration strictly
                 } else { /// If all BMP, ADXL, and LSM not working
                     land_condition = false; /// Set land condition to false and check again later
@@ -435,8 +435,8 @@ void Core1_BNO_task(void *pvParameter) {
             gQuaternion = BNO.getQuat();
             xSemaphoreGive(gI2cMutex);
             /// Check if all BNO data is ok
-            gOutputData.bno_ok = (m_orient_ok && m_gyro_ok && m_mag_ok && m_accel_ok)? 1 : 0;
-            if (gOutputData.bno_ok) {
+            gOutputData.sensorStatus.bno_ok = (m_orient_ok && m_gyro_ok && m_mag_ok && m_accel_ok)? 1 : 0;
+            if (gOutputData.sensorStatus.bno_ok) {
                 /// Save read data into telemetry struct
                 gOutputData.bno_quar_w = gQuaternion.w();
                 gOutputData.bno_quar_x = gQuaternion.x();
@@ -538,7 +538,7 @@ void Core1_GPS_task(void *pvParameter) {
                             #endif
 
                             m_got_fix = true;
-                            gOutputData.gpsFix_ok = true;
+                            gOutputData.sensorStatus.gpsFix_ok = true;
                             break;  // break while(GPS.available())
                         }
                     }
@@ -556,7 +556,7 @@ void Core1_GPS_task(void *pvParameter) {
             #ifdef DEBUG
                 printf("GPS: no valid fix this cycle\n");
             #endif
-            gOutputData.gpsFix_ok = false;
+            gOutputData.sensorStatus.gpsFix_ok = false;
         }
         vTaskDelay(pdMS_TO_TICKS(500)); // Stable, Unoptimized
 }
@@ -568,7 +568,7 @@ void Core1_SD_task(void *pvParameter) {
         if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
             if (gHasSD){
                 sdData = SD.open("/SD_data.txt", FILE_APPEND);
-                gOutputData.sd_ok = (sdData ? 1 : 0);
+                gOutputData.sensorStatus.sd_ok = (sdData ? 1 : 0);
                 if (sdData) {
                     if (sdData.size() >= 1000 && sdData.size() < 1200 ) { // skip <10 log lines and print header
                         sdData.println(
@@ -679,11 +679,16 @@ void Core1_Lora_task(void *pvParameter) {
         /// Lora function
         if (xSemaphoreTake(gSpiMutex_SL, pdMS_TO_TICKS(10)) == pdTRUE) {
             LoRa.beginPacket();
-            gOutputData.lora_ok = true;
+            gOutputData.sensorStatus.lora_ok = true;
             /// Packet Counter
             LoRa.write((uint8_t*)&loraCounter, sizeof(loraCounter));
             /// Send telemetry payload
-            LoRa.write((uint8_t*)&gOutputData, sizeof(gOutputData));
+            if (loraCounter < 30 ) { // For the first 30 packets, send all data
+                LoRa.write((uint8_t*)&gOutputData, sizeof(gOutputData));
+            } else { // After 30 packets, only send critical data (without sensorStatus) to save power and bandwidth
+                LoRa.write((uint8_t*)&gOutputData, sizeof(gOutputData) - sizeof(gOutputData.sensorStatus));
+            }
+            
             LoRa.endPacket();
             loraCounter++;
             xSemaphoreGive(gSpiMutex_SL);
