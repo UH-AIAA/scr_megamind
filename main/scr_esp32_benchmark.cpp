@@ -14,6 +14,7 @@
 #include "esp_system.h"
 #include "driver/gpio.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 
 // SPI imports, I^2C, and UART Imports
 #include "SPI.h"
@@ -373,11 +374,11 @@ void GPS_task(void *pvParameter) {
         .sensor = SENSOR_GPS,
     };
     while(true){
+        uint32_t startms = esp_timer_get_time();
         xTaskNotifyGive(LORA_handle);
-        uint32_t startms = millis();
         uint32_t timeout = startms + 200;
 
-        while (millis() < timeout) {
+        while (esp_timer_get_time() < timeout) {
             while (GPS.available()) {
                 GPS.read();
                 //choke point is from GPS.read();
@@ -420,9 +421,9 @@ void GPS_task(void *pvParameter) {
         printf("GPS READ FAILED!\n");
 
         end:
-            uint32_t endms = millis();
+            uint32_t endms = esp_timer_get_time();
             uint32_t spentms = endms - startms;
-            printf("Millis: %lu\n", endms);
+            printf("Microseconds: %lu\n", endms);
             printf("Task took %lu ms to complete.\n\n", spentms);
             if (spentms < 200) {
                 vTaskDelay(pdMS_TO_TICKS(200 - spentms));
@@ -448,7 +449,7 @@ void ADXL_task(void *pvParameter) {
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // gather what time the function started
-            startTime = millis();   // TODO: [JL] replace with unixtime/system clock timers
+            startTime = esp_timer_get_time();
             uptime = xTaskGetTickCount();
 
             // if read operation fails, start task over:
@@ -470,8 +471,8 @@ void ADXL_task(void *pvParameter) {
 
             // write data to queue
 
-            endTime = millis();
-
+            endTime = esp_timer_get_time();
+    
             #ifdef DEBUG
                 printf("ADXL Uptime: %lu [ms]\n",uptime);
                 //Display the results (acceleration is measured in m/s^2)
@@ -517,7 +518,7 @@ void BNO_task(void *pvParameter) {
         }
 
         // gather function start time
-        startTime = millis();
+        startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
         imu::Quaternion quat = BNO.getQuat();
@@ -546,7 +547,7 @@ void BNO_task(void *pvParameter) {
         xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
         GDQ.LatestBNOMsg = currentMessage.BNOMessage;
 
-        endTime = millis();
+        endTime = esp_timer_get_time();
 
         #ifdef DEBUG
             printf("BNO Uptime: %lu\n", uptime);
@@ -589,9 +590,10 @@ void LSM_task(void *pvParameter) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-            uptime = xTaskGetTickCount();
-            startTime = millis();
-
+            uptime = xTaskGetTickCount(); 
+            startTime = esp_timer_get_time(); 
+            
+    
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
                 xSemaphoreGive(sensor_spi_mutex);
@@ -620,7 +622,7 @@ void LSM_task(void *pvParameter) {
             }
             GDQ.LatestLSMMsg = currentMessage.LSMMessage;
 
-            endTime = millis();
+            endTime = esp_timer_get_time();
 
             //data printing
             #ifdef DEBUG
@@ -657,7 +659,7 @@ void BMP_task(void *pvParameter) {
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // time system
-            startTime = millis();
+            startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
             bmp_up = BMP.performReading();
 
@@ -684,7 +686,7 @@ void BMP_task(void *pvParameter) {
                     printf("BMP Press: %f\n", bmp_press);
                     printf("BMP Alt: %f\n", bmp_alt);
                     printf("Uptime [ms/ticks]: %lu\n\n", upTime);
-                    endTime = millis();
+                    endTime = esp_timer_get_time();
                     printf("Elapsed Time: %li\n\n\n", endTime - startTime);
                 #endif
             } else {
@@ -721,7 +723,7 @@ void SD_task(void *pvParameter)
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
-        uint32_t startTime = millis();
+        uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
         remaining = sizeof(msgBuf) - index;
@@ -789,8 +791,8 @@ void SD_task(void *pvParameter)
                 sdData.flush();
                 flushCounter = 0;
             }
-            // #ifdef DEBUG
-                uint32_t endTime = millis();
+            #ifdef DEBUG
+                uint32_t endTime = esp_timer_get_time();
                 printf("Uptime: %lu\n", uptime);
                 printf("ELAPSED TIME: %lu\n", endTime - startTime);
                 printf("Used Bytes: %lu\n", (unsigned long)index);
