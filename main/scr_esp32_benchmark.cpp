@@ -539,7 +539,7 @@ void LSM_task(void *pvParameter) {
 
             uptime = xTaskGetTickCount(); 
             startTime = esp_timer_get_time(); 
-            endTime = esp_timer_get_time();
+            
     
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
@@ -568,7 +568,7 @@ void LSM_task(void *pvParameter) {
             }
             GDQ.LatestLSMMsg = currentMessage.LSMMessage;
 
-            endTime = millis();
+            endTime = esp_timer_get_time();
 
             //data printing
             #ifdef DEBUG
@@ -668,7 +668,7 @@ void SD_task(void *pvParameter)
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
-        uint32_t startTime = millis();
+        uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
         remaining = sizeof(msgBuf) - index;
@@ -735,7 +735,7 @@ void SD_task(void *pvParameter)
                 flushCounter = 0;
             }
             #ifdef DEBUG
-                uint32_t endTime = millis();
+                uint32_t endTime = esp_timer_get_time();
                 printf("Uptime: %lu\n", uptime);
                 printf("ELAPSED TIME: %lu\n", endTime - startTime);
                 printf("Used Bytes: %lu\n", (unsigned long)index);
