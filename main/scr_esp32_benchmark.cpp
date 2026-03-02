@@ -750,3 +750,76 @@ void SD_task(void *pvParameter)
         }
     }
 }
+
+
+
+
+
+//Defining a struct to keep relevant data together update them
+typedef struct {
+    //for this test I have to change uint32_t
+    uint16_t n;
+    float mean;
+    float variance;
+    float mediary_unit;
+} Welford_state;
+//Defining a struct to keep relevant data together update them
+typedef struct {
+    //for this test I have to change uint32_t
+    uint16_t n;
+    float mean;
+    float variance;
+    float mediary_unit;
+} Welford_state;
+
+//Enumerating variables as constants equivalent to error codes
+typedef enum {
+    WELFORD_SUCCESS                 = 0,    // success
+    WELFORD_ERR_DBZ                 = 1,    // divide by zero error
+    WELFORD_ERR_INVALID_SAMPLE_SIZE = 2,    // too few samples (<0)
+    WELFORD_ERR_VAR_DIVERGE         = 3,    // variance > threshold
+};
+
+int Welford_Calibration(Welford_state *Welford, float calibration_data) {
+    if(Welford->n < 0) {
+        return WELFORD_ERR_INVALID_SAMPLE_SIZE;
+    }
+    //set up for calculating the mean and variance
+    Welford->n++;
+
+    //determines how much a data value changes the Welford mean and variance
+    float weighting_factor = calibration_data - Welford->mean;
+
+    //update the mean before variance calculation
+    Welford->mean += weighting_factor / (Welford->n);
+
+    //makes a unit commonly refered to as "M2" or "S2" to easily compute variance
+    Welford->mediary_unit += weighting_factor * (calibration_data - Welford->mean);
+    
+    //Calculate the variance    
+    if ((Welford->n) != 1) {
+        Welford->variance = (Welford->mediary_unit) / (Welford->n);
+        // this will live in the calibrate LSM function
+        // if(Welford->variance >= LSM_GYRO_VARIANCE_THRESHOLD) {
+        //     return WELFORD_ERR_VAR_DIVERGE;
+        // }
+    } else {
+        Welford->variance = 0;
+    }
+
+    return WELFORD_SUCCESS;
+}
+
+//example code
+//int main() {
+    //Welford_state state = {{0, 0.0, 0.0, 0.0}};
+    //// memset(&state, 0, sizeof(state));
+    //float test_data[4] = {1.0, 2.0, 3.0, 6.0};
+    //size_t data_size = sizeof(test_data) / sizeof(test_data[0]);
+    
+    //for (size_t i = 0; i < data_size; i++) {
+        //Welford_Calibration(&state, test_data[i]);
+        //printf("Added %.1f: mean=%.3f, variance=%.3f\n",
+               //test_data[i], state.mean, state.variance);
+    //}
+//}
