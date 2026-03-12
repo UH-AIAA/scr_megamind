@@ -435,12 +435,28 @@ void GPS_task(void *pvParameter) {
     }
 }
 
+// returns true on success, false on failure, TODO: [NS] add error modes to this refactor
+bool ReadADXL(Adafruit_ADXL375& ADXL, GDQMessage_t& outputMsg)
+{
+    static sensors_event_t event;
+    // if read operation fails, start task over:
+    if(!ADXL.getEvent(&event)) {
+        // xSemaphoreGive(sensor_spi_mutex);
+        return false;
+    }
+
+    // save off our sensor data, add it to queue
+    outputMsg.ADXLMessage.time = startTime;
+    outputMsg.ADXLMessage.acceleration[0] = event.acceleration.x;
+    outputMsg.ADXLMessage.acceleration[1] = event.acceleration.y;
+    outputMsg.ADXLMessage.acceleration[2] = event.acceleration.z;
+    return true;
+}
 void ADXL_task(void *pvParameter) {
     // variable declarations
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_ADXL,
     };
-    sensors_event_t event;
     uint32_t startTime, endTime;
     TickType_t uptime;
     while(1) {
@@ -451,24 +467,15 @@ void ADXL_task(void *pvParameter) {
             startTime = esp_timer_get_time();
             uptime = xTaskGetTickCount();
 
-            // if read operation fails, start task over:
-            if(!ADXL.getEvent(&event)) {
-                xSemaphoreGive(sensor_spi_mutex);
-                vTaskDelay(1);  // ends task, not eligible to be ran for another tick
+            // if success,
+            if(ReadADXL(ADXL, currentMessage)) {
+                // write data to queue
+                xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
+                GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
             }
 
-            // save off our sensor data, add it to queue
-            currentMessage.ADXLMessage.time = startTime;
-            currentMessage.ADXLMessage.acceleration[0] = event.acceleration.x;
-            currentMessage.ADXLMessage.acceleration[1] = event.acceleration.y;
-            currentMessage.ADXLMessage.acceleration[2] = event.acceleration.z;
-
-            // zero wait time means data is dropped if queue is full,
-            // i think that's okay! hopefully queue shouldn't be full
-            xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
-            GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
-
-            // write data to queue
+            // gives the mutex back
+            xSemaphoreGive(sensor_spi_mutex);
 
             endTime = esp_timer_get_time();
     
@@ -481,9 +488,6 @@ void ADXL_task(void *pvParameter) {
                 printf("Z: %f [m/s^2]\n",event.acceleration.z);
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
             #endif
-
-            // gives the mutex back
-            xSemaphoreGive(sensor_spi_mutex);
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
