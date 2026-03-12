@@ -381,7 +381,6 @@ void GPS_task(void *pvParameter) {
         uint32_t startms = esp_timer_get_time();
         xTaskNotifyGive(LORA_handle);
         uint32_t timeout = startms + 200000;
-        printf("GPS CALLED\n");
 
         while (esp_timer_get_time() < timeout) {
             while (GPS.available() && esp_timer_get_time() < timeout) {
@@ -819,63 +818,52 @@ void LORA_task(void *pvParameter)
     LORAMessage_t currentMessage;
     while (1)
     {
-        // if(ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == pdTRUE) {
-        // BaseType_t notified = xTaskNotifyWait(
-        //     0x00,           // bits to clear on entry (none)
-        //     0xFFFFFFFF,     // bits to clear on exit (all)
-        //     NULL, // store notification value here
-        //     portMAX_DELAY   // block indefinitely
-        // );
-
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-            printf("Task Entered!\n");
-            uptime = xTaskGetTickCount();
-            startTime = millis();
+        uptime = xTaskGetTickCount();
+        startTime = esp_timer_get_time();
 
-            // compress to current message
-            currentMessage.ADXL_time = GDQ.LatestADXLMsg.time;
-            currentMessage.ADXL_accel[0] = (int16_t)(GDQ.LatestADXLMsg.acceleration[0] * 1000);
-            currentMessage.ADXL_accel[1] = (int16_t)(GDQ.LatestADXLMsg.acceleration[1] * 1000);
-            currentMessage.ADXL_accel[2] = (int16_t)(GDQ.LatestADXLMsg.acceleration[2] * 1000);
+        // compress to current message
+        currentMessage.ADXL_time = GDQ.LatestADXLMsg.time;
+        currentMessage.ADXL_accel[0] = (int16_t)(GDQ.LatestADXLMsg.acceleration[0] * 1000);
+        currentMessage.ADXL_accel[1] = (int16_t)(GDQ.LatestADXLMsg.acceleration[1] * 1000);
+        currentMessage.ADXL_accel[2] = (int16_t)(GDQ.LatestADXLMsg.acceleration[2] * 1000);
 
-            currentMessage.BNO_time = GDQ.LatestBNOMsg.uptime;
-            currentMessage.BNO_quat[0] = (int16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
-            currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
-            currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
-            currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+        currentMessage.BNO_time = GDQ.LatestBNOMsg.uptime;
+        currentMessage.BNO_quat[0] = (int16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
+        currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
+        currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
+        currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
         
-            currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
-            currentMessage.LSM_accel[0] = (int16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
-            currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
-            currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
+        currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
+        currentMessage.LSM_accel[0] = (int16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
+        currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
+        currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
 
-            currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
-            currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
-            currentMessage.BMP_pressure = (int16_t)(GDQ.LatestBMPMsg.pressure);
-            currentMessage.BMP_altitude = (int16_t)(GDQ.LatestBMPMsg.altitude * 1000);
+        currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
+        currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
+        currentMessage.BMP_pressure = (int16_t)(GDQ.LatestBMPMsg.pressure);
+        currentMessage.BMP_altitude = (int16_t)(GDQ.LatestBMPMsg.altitude * 1000);
 
-            currentMessage.GPS_time = GDQ.LatestGPSMsg.time;
-            currentMessage.GPS_sat = (uint8_t)(GDQ.LatestGPSMsg.satellites);
-            currentMessage.GPS_lat = (int16_t)(GDQ.LatestGPSMsg.latitude);
-            currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
-            currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
-            currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
-            if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
-            {
-                // write packet!
-                LoRa.beginPacket();
-                LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
-                LoRa.endPacket(true);
+        currentMessage.GPS_time = GDQ.LatestGPSMsg.time;
+        currentMessage.GPS_sat = (uint8_t)(GDQ.LatestGPSMsg.satellites);
+        currentMessage.GPS_lat = (int16_t)(GDQ.LatestGPSMsg.latitude);
+        currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
+        currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
+        currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
+        if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            // write packet!
+            LoRa.beginPacket();
+            LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
+            LoRa.endPacket(true);
 
-                xSemaphoreGive(sd_lora_spi_mutex);
+            xSemaphoreGive(sd_lora_spi_mutex);
 
-                endTime = millis();
+            #ifdef DEBUG
+                endTime = esp_timer_get_time();
 
                 printf("Time Elapsed LoRa: %lu\n", endTime - startTime);
-            }   
-        // }
-        // TODO: [NS] make task ineligible
-        // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        // vTaskDelay(200);
+            #endif
+        }   
     }
 }
