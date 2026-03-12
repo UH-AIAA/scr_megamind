@@ -14,6 +14,7 @@
 #include "esp_system.h"
 #include "driver/gpio.h"
 #include "esp_task_wdt.h"
+#include "esp_timer.h"
 
 // SPI imports, I^2C, and UART Imports
 #include "SPI.h"
@@ -74,7 +75,9 @@ File sdData;
 const char header[24] = "sensor_code,time,packet";
 
 //SPI mutex
+TaskHandle_t LORA_handle;
 static SemaphoreHandle_t sensor_spi_mutex;
+static SemaphoreHandle_t sd_lora_spi_mutex;
 
 // SENSOR DATA TYPES
 typedef struct ADXLMessage {
@@ -109,6 +112,30 @@ typedef struct BMPMessage {
     uint32_t time;
     float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
 }BMPMessage_t;
+
+typedef struct LORAMessage {
+    uint32_t ADXL_time;
+    uint16_t ADXL_accel[3];
+
+    uint32_t BNO_time;
+    uint16_t BNO_quat[4];
+    uint16_t BNO_euler[3];
+    uint16_t BNO_magnet[3];
+    uint16_t BNO_accel[3];
+    
+    uint32_t LSM_time;
+    uint16_t LSM_accel[3];
+    uint16_t LSM_gyro[3];
+
+    uint32_t BMP_time;
+    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
+
+    uint32_t GPS_time;
+    uint8_t GPS_sat;
+    uint16_t GPS_lon, GPS_lat;
+    char GPS_lon_dir, GPS_lat_dir;
+    uint16_t GPS_alt;
+} LORAMessage_t;
 
 typedef enum SensorType {
     SENSOR_GPS = 0,
@@ -170,7 +197,7 @@ void init_spi() {
 
     // TODO: [DA] - configure ADXL acceleration range based off of acceleration curve
     
-    // LORA setup (Thanh's work!)
+    // // LORA setup (Thanh's work!)
     // LoRa.setSPI(SPI2);
     // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
     // LoRa.begin(LORA_FREQ);
@@ -181,22 +208,31 @@ void init_spi() {
         printf("SPI2 failed\n");
         }
     }
-    if(!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
-    {
-        while (1) {
-            printf("SD never began!\n");
-        }
-    }
+    // if(!SD.begin(SD_CS, SPI2, 1E6))   // TODO: [NS] make this a #define
+    // {
+    //     printf("SD never began!\n");
+    //     while (1) {
+    //     }
+    // }
 
+    // NOTE: temporarily uncommented this for fried module
     // TODO: update file name with RTC input once configured
-    sdData = SD.open("/newName.csv", FILE_WRITE);
-    if(!sdData) {
-        while(1) {
-            printf("SD FILE FAILED\n");
-        }
+    // sdData = SD.open("/newName.csv", FILE_WRITE);
+    // if(!sdData) {
+    //     while(1) {
+    //         printf("SD FILE FAILED\n");
+    //     }
+    // }
+    // sdData.println(header);
+
+    // LORA setup (Thanh's work!)
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    if(!LoRa.begin(LORA_FREQ))
+    {
+        printf("LoRa.begin failed!\n");
+        while (1) {};
     }
-    sdData.println(header);
-    // sdData.close();
 }
 
 void init_I2C() {
@@ -229,6 +265,7 @@ void LSM_task(void *pvParameter);
 void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 void SD_task(void *pvParameter);
+void LORA_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -249,6 +286,8 @@ extern "C" void app_main()
 
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
+    sd_lora_spi_mutex = xSemaphoreCreateMutex();  
+    printf("Mutex addr: %p\n", sd_lora_spi_mutex);
 
     // sample task for your convenience
 /*    xTaskCreate(
@@ -262,24 +301,35 @@ extern "C" void app_main()
 */
     // create tasks!
     xTaskCreatePinnedToCore(
+        LORA_task,
+        "LORA_task",
+        10000,
+        NULL,
+        5,
+        &LORA_handle,
+        1
+    );
+
+    xTaskCreatePinnedToCore(
         GPS_task,
         "GPS Task",
-        5000,
+        8000,
         NULL,
         3,
         NULL,
         1
     );
 
-    xTaskCreatePinnedToCore(
-        SD_task,
-        "SD_task",
-        8000,
-        NULL,
-        4,
-        NULL,
-        1
-    );
+    // NOTE: temporarily commented out while waiting for new SD chip
+    // xTaskCreatePinnedToCore(
+    //     SD_task,
+    //     "SD_task",
+    //     8000,
+    //     NULL,
+    //     4,
+    //     NULL,
+    //     1
+    // );
 
     xTaskCreatePinnedToCore(
         ADXL_task,
@@ -323,16 +373,20 @@ void GPS_task(void *pvParameter) {
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_GPS,
     };
-    while(true){
-        uint32_t startms = millis();
-        uint32_t timeout = startms + 200;
 
-        while (millis() < timeout) {
-            while (GPS.available()) {
+    const TickType_t period = pdMS_TO_TICKS(200);
+    TickType_t lastWake = xTaskGetTickCount();
+
+    while(true){
+        uint32_t startms = esp_timer_get_time();
+        xTaskNotifyGive(LORA_handle);
+        uint32_t timeout = startms + 200000;
+
+        while (esp_timer_get_time() < timeout) {
+            while (GPS.available() && esp_timer_get_time() < timeout) {
                 GPS.read();
                 //choke point is from GPS.read();
                 //can only read 1 byte at a time
-
                 if (GPS.newNMEAreceived()) {
                     if (!GPS.parse(GPS.lastNMEA())) {
                         continue;
@@ -367,18 +421,17 @@ void GPS_task(void *pvParameter) {
             }
         }
 
-        printf("GPS READ FAILED!\n");
+        printf("GPS no fix!\n");
 
         end:
-            uint32_t endms = millis();
+            uint32_t endms = esp_timer_get_time();
             uint32_t spentms = endms - startms;
-            printf("Millis: %lu\n", endms);
+            printf("Microseconds: %lu\n", endms);
             printf("Task took %lu ms to complete.\n\n", spentms);
-            if (spentms < 200) {
-                vTaskDelay(pdMS_TO_TICKS(200 - spentms));
-            } else {
-                vTaskDelay(pdMS_TO_TICKS(10));
-            } 
+            vTaskDelayUntil(&lastWake, period);
+            
+            // TODO: [NS] make LORA_task eligible to run
+        // xTaskNotifyGive(LORA_handle);
     }
 }
 
@@ -395,7 +448,7 @@ void ADXL_task(void *pvParameter) {
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // gather what time the function started
-            startTime = millis();   // TODO: [JL] replace with unixtime/system clock timers
+            startTime = esp_timer_get_time();
             uptime = xTaskGetTickCount();
 
             // if read operation fails, start task over:
@@ -417,8 +470,8 @@ void ADXL_task(void *pvParameter) {
 
             // write data to queue
 
-            endTime = millis();
-
+            endTime = esp_timer_get_time();
+    
             #ifdef DEBUG
                 printf("ADXL Uptime: %lu [ms]\n",uptime);
                 //Display the results (acceleration is measured in m/s^2)
@@ -464,7 +517,7 @@ void BNO_task(void *pvParameter) {
         }
 
         // gather function start time
-        startTime = millis();
+        startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
         imu::Quaternion quat = BNO.getQuat();
@@ -493,7 +546,7 @@ void BNO_task(void *pvParameter) {
         xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
         GDQ.LatestBNOMsg = currentMessage.BNOMessage;
 
-        endTime = millis();
+        endTime = esp_timer_get_time();
 
         #ifdef DEBUG
             printf("BNO Uptime: %lu\n", uptime);
@@ -536,9 +589,10 @@ void LSM_task(void *pvParameter) {
         // attempts to retrieve mutex
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
-            uptime = xTaskGetTickCount();
-            startTime = millis();
-
+            uptime = xTaskGetTickCount(); 
+            startTime = esp_timer_get_time(); 
+            
+    
             // if LSM read fails, return mutex, and schedule task again after 1 tick
             if(!LSM.getEvent(&accel, &gyro, &temp)) {
                 xSemaphoreGive(sensor_spi_mutex);
@@ -562,11 +616,12 @@ void LSM_task(void *pvParameter) {
             // writes data to queue
             if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
             {
-                printf("LSM Lost Packet!\n");
+                // NOTE: temporarily commented out for work on unstable branch
+                // printf("LSM Lost Packet!\n");
             }
             GDQ.LatestLSMMsg = currentMessage.LSMMessage;
 
-            endTime = millis();
+            endTime = esp_timer_get_time();
 
             //data printing
             #ifdef DEBUG
@@ -603,7 +658,7 @@ void BMP_task(void *pvParameter) {
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
             // time system
-            startTime = millis();
+            startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
             bmp_up = BMP.performReading();
 
@@ -630,7 +685,7 @@ void BMP_task(void *pvParameter) {
                     printf("BMP Press: %f\n", bmp_press);
                     printf("BMP Alt: %f\n", bmp_alt);
                     printf("Uptime [ms/ticks]: %lu\n\n", upTime);
-                    endTime = millis();
+                    endTime = esp_timer_get_time();
                     printf("Elapsed Time: %li\n\n\n", endTime - startTime);
                 #endif
             } else {
@@ -649,7 +704,7 @@ void BMP_task(void *pvParameter) {
 
 void SD_task(void *pvParameter)
 {
-    char msgBuf[5096];
+    char msgBuf[4096];
     size_t index = 0;
     size_t remaining;
     static int n;
@@ -663,10 +718,11 @@ void SD_task(void *pvParameter)
     while(1)
     {
         // TODO: [NS] SD SPI Mutex
+        // printf("started sd...\n");
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
-        uint32_t startTime = millis();
+        uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
         remaining = sizeof(msgBuf) - index;
@@ -726,19 +782,23 @@ void SD_task(void *pvParameter)
 
         // if buffer full, write out
         if(n >= remaining) {
+            xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
+
             sdData.print(msgBuf);
             flushCounter += index;
-            if(flushCounter >= 16E3) {
+            if(flushCounter >= 32E3) {
                 sdData.flush();
                 flushCounter = 0;
             }
             #ifdef DEBUG
-                uint32_t endTime = millis();
+                uint32_t endTime = esp_timer_get_time();
                 printf("Uptime: %lu\n", uptime);
                 printf("ELAPSED TIME: %lu\n", endTime - startTime);
                 printf("Used Bytes: %lu\n", (unsigned long)index);
                 printf("Queue Length: %lu\n\n", (unsigned long)uxQueueMessagesWaiting(GDQ.SensorQueue));
             #endif
+
+            xSemaphoreGive(sd_lora_spi_mutex);
 
             // reset buffer
             index = 0;
@@ -748,5 +808,62 @@ void SD_task(void *pvParameter)
         } else {
             index += n;
         }
+    }
+}
+
+void LORA_task(void *pvParameter)
+{
+    static TickType_t uptime;
+    static uint32_t startTime, endTime;
+    LORAMessage_t currentMessage;
+    while (1)
+    {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        uptime = xTaskGetTickCount();
+        startTime = esp_timer_get_time();
+
+        // compress to current message
+        currentMessage.ADXL_time = GDQ.LatestADXLMsg.time;
+        currentMessage.ADXL_accel[0] = (int16_t)(GDQ.LatestADXLMsg.acceleration[0] * 1000);
+        currentMessage.ADXL_accel[1] = (int16_t)(GDQ.LatestADXLMsg.acceleration[1] * 1000);
+        currentMessage.ADXL_accel[2] = (int16_t)(GDQ.LatestADXLMsg.acceleration[2] * 1000);
+
+        currentMessage.BNO_time = GDQ.LatestBNOMsg.uptime;
+        currentMessage.BNO_quat[0] = (int16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
+        currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
+        currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
+        currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+        
+        currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
+        currentMessage.LSM_accel[0] = (int16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
+        currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
+        currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
+
+        currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
+        currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
+        currentMessage.BMP_pressure = (int16_t)(GDQ.LatestBMPMsg.pressure);
+        currentMessage.BMP_altitude = (int16_t)(GDQ.LatestBMPMsg.altitude * 1000);
+
+        currentMessage.GPS_time = GDQ.LatestGPSMsg.time;
+        currentMessage.GPS_sat = (uint8_t)(GDQ.LatestGPSMsg.satellites);
+        currentMessage.GPS_lat = (int16_t)(GDQ.LatestGPSMsg.latitude);
+        currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
+        currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
+        currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
+        if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
+            // write packet!
+            LoRa.beginPacket();
+            LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
+            LoRa.endPacket(true);
+
+            xSemaphoreGive(sd_lora_spi_mutex);
+
+            #ifdef DEBUG
+                endTime = esp_timer_get_time();
+
+                printf("Time Elapsed LoRa: %lu\n", endTime - startTime);
+            #endif
+        }   
     }
 }
