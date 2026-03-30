@@ -40,6 +40,5 @@
 |AUTH_EXPIRE|Common|In the case of weak Wi-Fi network signal, this error is quite common, bring your device closer to AP|
 |ASSOC_EXPIRE|Rare|-|
 # Successful connection example
- ![alt text](https://i.nahraj.to/f/24Kc.png)
 # Unsuccessful connection example
  ![alt text](https://camo.githubusercontent.com/87e47d1b27f4e8ace87423e40e8edbce7983bafa/68747470733a2f2f692e6e616872616a2e746f2f662f323435572e504e47)
