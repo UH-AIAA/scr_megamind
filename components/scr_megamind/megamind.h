@@ -95,7 +95,6 @@ typedef struct GDQMessage {
     };
 } GDQMessage_t;
 
-
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
 typedef struct GDQ {
@@ -108,13 +107,33 @@ typedef struct GDQ {
     BMPMessage_t LatestBMPMsg;
 } GDQ_t;
 
+// calibration data types
+//Defining a struct to keep relevant data together update them
+typedef struct {
+    uint32_t n;
+    float mean;
+    float variance;
+    float mediary_unit;
+} Welford_state;
+
+//Enumerating variables as constants equivalent to error codes
+typedef enum {
+    WELFORD_SUCCESS                 = 0,    // success
+    WELFORD_ERR_DBZ                 = 1,    // divide by zero error
+    WELFORD_ERR_INVALID_SAMPLE_SIZE = 2,    // too few samples (<0)
+    WELFORD_ERR_VAR_DIVERGE         = 3,    // variance > threshold
+};
 
 ////////////////////////////////
 /*    FUNCTION DEFINITIONS    */
 ////////////////////////////////
 
 // sensor functions
-bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg);
+bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg, float accelBias[3]);
 bool ReadBNO(Adafruit_BNO055 *BNO, GDQMessage_t *currentMessage);
-bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage);
+bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage, float accelBias[3], float gyroBias[3]);
 bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg);
+
+// calibration helpers
+int Welford_Calibration(Welford_state *Welford, float calibration_data);
+bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_ACCEL_BIAS[3], float LSM_ACCEL_BIAS[3], float LSM_GYRO_BIAS[3], const int numSamples, const int divergenceThresh);
