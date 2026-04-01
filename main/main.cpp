@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////
-/*                   SCR ESP-32 Brute Sensor Test                    */
+/*                        SCR Megamind FSW                           */
 ///////////////////////////////////////////////////////////////////////
 /*                           N. Samuell                              */
 /*                      FreeRTOS/ESP-IDF test                        */
@@ -28,7 +28,7 @@
 #include "LoRa.h"
 
 // SRAD Imports
-#include "SRAD_PHX.h"
+ #include "megamind.h"
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -78,99 +78,6 @@ const char header[24] = "sensor_code,time,packet";
 TaskHandle_t LORA_handle;
 static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
-
-// SENSOR DATA TYPES
-typedef struct ADXLMessage {
-    uint32_t time;          // ms since start for now (what we're already doing), maybe move to unixtime/RTC later
-    float acceleration[3];  // acceleration data (x, y, z);
-} ADXLMessage_t;
-
-typedef struct BNOMessage {
-    uint32_t uptime;              //uptime from BNO snsor
-    float quaternion[4];          //W,X,Y,Z data
-    float euler_orientation[3];   //x,y,z angular acceleration
-    float magnetometer[3];        //x,y,z, of SOMETHING, not sure yet
-    float acceleration[3];        //x,y,z linear acceleration
-} BNOMessage_t;
-
-typedef struct GPSMessage {
-    uint32_t time;
-    int satellites;               // not sure if this is necessary but I'll include it
-    float longitude, latitude;    // numerical coordinates for the longitude and latitude in degress/minutes
-    char lon,lat;                 // stores the cardinal direction (E/W for lon and N/S for lat)
-    float altitude;               // gps altitude reading
-}GPSMessage_t;
-
-typedef struct LSMMessage {
-    uint32_t time;
-    float acceleration[3];         // stores the X,Y,Z acceleration
-    float gyro[3];                 // stores X,Y,Z gyro orientation
-    //float temp;                  // this was commented off but I'll keep it here in case we use it
-}LSMMessage_t;
-
-typedef struct BMPMessage {
-    uint32_t time;
-    float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
-}BMPMessage_t;
-
-typedef struct LORAMessage {
-    uint32_t ADXL_time;
-    uint16_t ADXL_accel[3];
-
-    uint32_t BNO_time;
-    uint16_t BNO_quat[4];
-    uint16_t BNO_euler[3];
-    uint16_t BNO_magnet[3];
-    uint16_t BNO_accel[3];
-    
-    uint32_t LSM_time;
-    uint16_t LSM_accel[3];
-    uint16_t LSM_gyro[3];
-
-    uint32_t BMP_time;
-    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
-
-    uint32_t GPS_time;
-    uint8_t GPS_sat;
-    uint16_t GPS_lon, GPS_lat;
-    char GPS_lon_dir, GPS_lat_dir;
-    uint16_t GPS_alt;
-} LORAMessage_t;
-
-typedef enum SensorType {
-    SENSOR_GPS = 0,
-    SENSOR_ADXL = 1,
-    SENSOR_BNO  = 2,
-    SENSOR_LSM  = 3,
-    SENSOR_BMP  = 4,
-} SensorType_t;
-
-typedef struct GDQMessage {
-    uint32_t time;
-    SensorType_t sensor;
-
-    union {
-        GPSMessage_t GPSMessage;
-        ADXLMessage_t ADXLMessage;
-        BNOMessage_t BNOMessage;
-        LSMMessage_t LSMMessage;
-        BMPMessage_t BMPMessage;
-    };
-} GDQMessage_t;
-
-
-// SENSOR DATA STORAGE QUEUES
-// GDQ == Global Data Queue
-typedef struct GDQ {
-    QueueHandle_t SensorQueue;
-
-    GPSMessage_t LatestGPSMsg;    // added to make globally available
-    ADXLMessage_t LatestADXLMsg;
-    BNOMessage_t LatestBNOMsg;
-    LSMMessage_t LatestLSMMsg;
-    BMPMessage_t LatestBMPMsg;
-} GDQ_t;
-
 
 GDQ_t GDQ;
 
@@ -435,40 +342,34 @@ void GPS_task(void *pvParameter) {
     }
 }
 
+
 void ADXL_task(void *pvParameter) {
     // variable declarations
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_ADXL,
     };
-    sensors_event_t event;
     uint32_t startTime, endTime;
     TickType_t uptime;
+    static bool adxl_up;
     while(1) {
+        // gather what time the function started
+        startTime = esp_timer_get_time();
+        uptime = xTaskGetTickCount();
+
         // attempt to take mutex, code inside blocked until mutex is released
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
+            // if success,
+            adxl_up = ReadADXL(&ADXL, &currentMessage);
+            // gives the mutex back
+            xSemaphoreGive(sensor_spi_mutex);
+        }
 
-            // gather what time the function started
-            startTime = esp_timer_get_time();
-            uptime = xTaskGetTickCount();
-
-            // if read operation fails, start task over:
-            if(!ADXL.getEvent(&event)) {
-                xSemaphoreGive(sensor_spi_mutex);
-                vTaskDelay(1);  // ends task, not eligible to be ran for another tick
-            }
-
-            // save off our sensor data, add it to queue
-            currentMessage.ADXLMessage.time = startTime;
-            currentMessage.ADXLMessage.acceleration[0] = event.acceleration.x;
-            currentMessage.ADXLMessage.acceleration[1] = event.acceleration.y;
-            currentMessage.ADXLMessage.acceleration[2] = event.acceleration.z;
-
-            // zero wait time means data is dropped if queue is full,
-            // i think that's okay! hopefully queue shouldn't be full
+        if (adxl_up) {
+            currentMessage.time = startTime;
+            // write data to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
             GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
-
-            // write data to queue
+            
 
             endTime = esp_timer_get_time();
     
@@ -476,14 +377,11 @@ void ADXL_task(void *pvParameter) {
                 printf("ADXL Uptime: %lu [ms]\n",uptime);
                 //Display the results (acceleration is measured in m/s^2)
 
-                printf("X: %f [m/s^2]\n",event.acceleration.x);
-                printf("Y: %f [m/s^2]\n",event.acceleration.y);
-                printf("Z: %f [m/s^2]\n",event.acceleration.z);
+                printf("X: %f [m/s^2]\n",currentMessage.ADXLMessage.acceleration[0]);
+                printf("Y: %f [m/s^2]\n",currentMessage.ADXLMessage.acceleration[1]);
+                printf("Z: %f [m/s^2]\n",currentMessage.ADXLMessage.acceleration[2]);
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
             #endif
-
-            // gives the mutex back
-            xSemaphoreGive(sensor_spi_mutex);
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -493,7 +391,6 @@ void ADXL_task(void *pvParameter) {
 //               to and what it means
 void BNO_task(void *pvParameter) {
     // variable declaration
-    sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
     uint32_t startTime, endTime;
     TickType_t uptime;
     GDQMessage_t currentMessage = {
@@ -503,63 +400,34 @@ void BNO_task(void *pvParameter) {
     while (1) {
         // TODO: [NS/JL] assess if we actually need to gather all this data from the sensor
         // if we can't get BNO data, end task early and schedule again after 1 tick
-        if (!BNO.getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
-            vTaskDelay(1);
-        }
-        if (!BNO.getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE)) {
-            vTaskDelay(1);
-        }
-        if (!BNO.getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER)) {
-            vTaskDelay(1);
-        }
-        if (!BNO.getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
-            vTaskDelay(1);
-        }
 
         // gather function start time
         startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
-        imu::Quaternion quat = BNO.getQuat();
+        if(ReadBNO(&BNO, &currentMessage))
+        {
+            currentMessage.time = startTime;
 
-        //save sensor data and add it to queue
-        currentMessage.BNOMessage.uptime = startTime;
-
-        currentMessage.BNOMessage.quaternion[0] = quat.w();
-        currentMessage.BNOMessage.quaternion[1] = quat.x();
-        currentMessage.BNOMessage.quaternion[2] = quat.y();
-        currentMessage.BNOMessage.quaternion[3] = quat.z();
-
-        currentMessage.BNOMessage.euler_orientation[0] = angVelocityData.gyro.x;
-        currentMessage.BNOMessage.euler_orientation[1] = angVelocityData.gyro.y;
-        currentMessage.BNOMessage.euler_orientation[2] = angVelocityData.gyro.z;
-
-        currentMessage.BNOMessage.magnetometer[0] = magnetometerData.magnetic.x;
-        currentMessage.BNOMessage.magnetometer[1] = magnetometerData.magnetic.y;
-        currentMessage.BNOMessage.magnetometer[2] = magnetometerData.magnetic.z;
-
-        currentMessage.BNOMessage.acceleration[0] = accelerometerData.acceleration.x;
-        currentMessage.BNOMessage.acceleration[1] = accelerometerData.acceleration.y;
-        currentMessage.BNOMessage.acceleration[2] = accelerometerData.acceleration.z;
-
-        //write message to queue
-        xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
-        GDQ.LatestBNOMsg = currentMessage.BNOMessage;
-
+            //write message to queue
+            xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
+            GDQ.LatestBNOMsg = currentMessage.BNOMessage;
+        }
+        
         endTime = esp_timer_get_time();
 
         #ifdef DEBUG
             printf("BNO Uptime: %lu\n", uptime);
             printf("Quaternion:\n");
-            printf("W: %f\n", quat.w());
-            printf("X: %f\n", quat.x());
-            printf("Y: %f\n", quat.y());
-            printf("Z: %f\n\n", quat.z());
+            printf("W: %f\n", currentMessage.BNOMessage.quaternion[0]);
+            printf("X: %f\n", currentMessage.BNOMessage.quaternion[1]);
+            printf("Y: %f\n", currentMessage.BNOMessage.quaternion[2]);
+            printf("Z: %f\n\n", currentMessage.BNOMessage.quaternion[3]);
 
             printf("Euler Orientation:\n");
-            printf("X: %f\n", angVelocityData.gyro.x);
-            printf("Y: %f\n", angVelocityData.gyro.y);
-            printf("Z: %f\n", angVelocityData.gyro.z);
+            printf("X: %f\n", currentMessage.BNOMessage.euler_orientation[0]);
+            printf("Y: %f\n", currentMessage.BNOMessage.euler_orientation[1]);
+            printf("Z: %f\n", currentMessage.BNOMessage.euler_orientation[2]);
             printf("Elapsed Time: %li\n\n\n", endTime - startTime);
             // other data has been left out to avoid slowing down printing
 
@@ -569,6 +437,7 @@ void BNO_task(void *pvParameter) {
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
+
 
 void LSM_task(void *pvParameter) {
 
@@ -580,69 +449,50 @@ void LSM_task(void *pvParameter) {
     uint32_t startTime;
     uint32_t endTime;
 
-    //Sensor events
-    sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-
     while (1) {
+        uptime = xTaskGetTickCount(); 
+        startTime = esp_timer_get_time(); 
+
         // attempts to retrieve mutex
-        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
-
-            uptime = xTaskGetTickCount(); 
-            startTime = esp_timer_get_time(); 
-            
-    
-            // if LSM read fails, return mutex, and schedule task again after 1 tick
-            if(!LSM.getEvent(&accel, &gyro, &temp)) {
-                xSemaphoreGive(sensor_spi_mutex);
-                vTaskDelay(1);
-            }
-
-            // adds data to LSM struct
-            currentMessage.LSMMessage.time = startTime;
-
-            currentMessage.LSMMessage.acceleration[0] = accel.acceleration.x;
-            currentMessage.LSMMessage.acceleration[1] = accel.acceleration.y;
-            currentMessage.LSMMessage.acceleration[2] = accel.acceleration.z;
-
-            currentMessage.LSMMessage.gyro[0] = gyro.gyro.x;
-            currentMessage.LSMMessage.gyro[1] = gyro.gyro.y;
-            currentMessage.LSMMessage.gyro[2] = gyro.gyro.z;
-
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
-
-            // writes data to queue
-            if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
-            {
-                // NOTE: temporarily commented out for work on unstable branch
-                // printf("LSM Lost Packet!\n");
+            if(ReadLSM(&LSM, &currentMessage)) {
+                currentMessage.time = startTime;
+                // writes data to queue
+                if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
+                {
+                    // NOTE: temporarily commented out for work on unstable branch
+                    // printf("LSM Lost Packet!\n");
+                }
+                GDQ.LatestLSMMsg = currentMessage.LSMMessage;
             }
-            GDQ.LatestLSMMsg = currentMessage.LSMMessage;
+            
+            // give back mutex
+            xSemaphoreGive(sensor_spi_mutex);
 
             endTime = esp_timer_get_time();
 
             //data printing
             #ifdef DEBUG
                 printf("LSM Ticktime: %lu [ms]\n", uptime);
-                printf("X Acceleration: %f [m/s^2]\n", accel.acceleration.x);
-                printf("Y Acceleration: %f [m/s^2]\n", accel.acceleration.y);
-                printf("Z Acceleration: %f [m/s^2]\n", accel.acceleration.z);
-                printf("X Gyro: %f [idk]\n",gyro.gyro.x);
-                printf("Y Gyro: %f [idk]\n",gyro.gyro.y);
-                printf("Z Gyro: %f [idk]\n",gyro.gyro.z);
+                printf("X Acceleration: %f [m/s^2]\n", currentMessage.LSMMessage.acceleration[0]);
+                printf("Y Acceleration: %f [m/s^2]\n", currentMessage.LSMMessage.acceleration[1]);
+                printf("Z Acceleration: %f [m/s^2]\n", currentMessage.LSMMessage.acceleration[2]);
+                printf("X Gyro: %f [idk]\n",currentMessage.LSMMessage.gyro[0]);
+                printf("Y Gyro: %f [idk]\n",currentMessage.LSMMessage.gyro[1]);
+                printf("Z Gyro: %f [idk]\n",currentMessage.LSMMessage.gyro[2]);
                 // printf("Temperature: %f [deg C]\n",temp);
                 printf("Elapsed Time: %li\n\n", endTime - startTime);
 
             #endif
 
-            // give back mutex
-            xSemaphoreGive(sensor_spi_mutex);
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
+
 
 void BMP_task(void *pvParameter) {
     static bool bmp_up;
@@ -660,32 +510,25 @@ void BMP_task(void *pvParameter) {
             // time system
             startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
-            bmp_up = BMP.performReading();
+            bmp_up = ReadBMP(&BMP, &currentMessage);
+            xSemaphoreGive(sensor_spi_mutex);//gives back mutex
+            endTime = esp_timer_get_time();
 
             if(bmp_up) {
-                bmp_temp = BMP.temperature;
-                bmp_press = BMP.pressure;
-                bmp_alt = BMP.readAltitude(1013.25f);
-
                 // TODO: [NS] add calibration
 
                 // adds data to struct
                 currentMessage.BMPMessage.time = startTime;
-                currentMessage.BMPMessage.temp = bmp_temp;
-                currentMessage.BMPMessage.pressure = bmp_press;
-                currentMessage.BMPMessage.altitude = bmp_alt;
-
                 // writes data to queue
                 xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
                 GDQ.LatestBMPMsg = currentMessage.BMPMessage;
 
                 #ifdef DEBUG
                     printf("BMP reporting OK!\n");
-                    printf("BMP Temp: %f\n", bmp_temp);
-                    printf("BMP Press: %f\n", bmp_press);
-                    printf("BMP Alt: %f\n", bmp_alt);
+                    printf("BMP Temp: %f\n", currentMessage.BMPMessage.temp);
+                    printf("BMP Press: %f\n", currentMessage.BMPMessage.pressure);
+                    printf("BMP Alt: %f\n", currentMessage.BMPMessage.altitude);
                     printf("Uptime [ms/ticks]: %lu\n\n", upTime);
-                    endTime = esp_timer_get_time();
                     printf("Elapsed Time: %li\n\n\n", endTime - startTime);
                 #endif
             } else {
@@ -693,11 +536,7 @@ void BMP_task(void *pvParameter) {
                     printf("BMP reporting NOT OK!\n\n");
                 #endif
             }
-
-            xSemaphoreGive(sensor_spi_mutex);//gives back mutex
-
         }
-
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -730,7 +569,7 @@ void SD_task(void *pvParameter)
         switch(currentMessage.sensor) {
             case SENSOR_GPS:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%i,%f,%f,%c,%c,%f\n",
+                     "%i,%llu,%i,%f,%f,%c,%c,%f\n",
                      SENSOR_GPS,
                      currentMessage.GPSMessage.time,
                      currentMessage.GPSMessage.satellites,
@@ -741,7 +580,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_ADXL:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f\n",
                      SENSOR_ADXL,
                      currentMessage.ADXLMessage.time,
                      currentMessage.ADXLMessage.acceleration[0], currentMessage.ADXLMessage.acceleration[1], currentMessage.ADXLMessage.acceleration[2]
@@ -749,7 +588,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_BNO:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
                      SENSOR_BNO,
                      currentMessage.BNOMessage.uptime,
                      currentMessage.BNOMessage.quaternion[0], currentMessage.BNOMessage.quaternion[1], currentMessage.BNOMessage.quaternion[2], currentMessage.BNOMessage.quaternion[3],
@@ -761,7 +600,7 @@ void SD_task(void *pvParameter)
 
             case SENSOR_LSM:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f,%f,%f,%f\n",
                      SENSOR_LSM,
                      currentMessage.LSMMessage.time,
                      currentMessage.LSMMessage.acceleration[0], currentMessage.LSMMessage.acceleration[1], currentMessage.LSMMessage.acceleration[2],
@@ -770,7 +609,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_BMP:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f\n",
                      SENSOR_BMP,
                      currentMessage.BMPMessage.time,
                      currentMessage.BMPMessage.temp,
@@ -850,6 +689,11 @@ void LORA_task(void *pvParameter)
         currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
         currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
         currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
+        
+        // flight state/apogee TODO: [NS] update with state machine
+        currentMessage.apogeeEstimate = 0;
+        currentMessage.flightState = 0;
+
         if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
             // write packet!
