@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////
-/*                   SCR ESP-32 Brute Sensor Test                    */
+/*                        SCR Megamind FSW                           */
 ///////////////////////////////////////////////////////////////////////
 /*                           N. Samuell                              */
 /*                      FreeRTOS/ESP-IDF test                        */
@@ -28,7 +28,7 @@
 #include "LoRa.h"
 
 // SRAD Imports
-// #include "SRAD_PHX.h"
+ #include "megamind.h"
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -59,7 +59,7 @@
 #define LORA_FREQ 915E6
 
 // Debug control definitions
-#define DEBUG
+// #define DEBUG
 #define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
@@ -78,99 +78,6 @@ const char header[24] = "sensor_code,time,packet";
 TaskHandle_t LORA_handle;
 static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
-
-// SENSOR DATA TYPES
-typedef struct ADXLMessage {
-    uint32_t time;          // ms since start for now (what we're already doing), maybe move to unixtime/RTC later
-    float acceleration[3];  // acceleration data (x, y, z);
-} ADXLMessage_t;
-
-typedef struct BNOMessage {
-    uint32_t uptime;              //uptime from BNO snsor
-    float quaternion[4];          //W,X,Y,Z data
-    float euler_orientation[3];   //x,y,z angular acceleration
-    float magnetometer[3];        //x,y,z, of SOMETHING, not sure yet
-    float acceleration[3];        //x,y,z linear acceleration
-} BNOMessage_t;
-
-typedef struct GPSMessage {
-    uint32_t time;
-    int satellites;               // not sure if this is necessary but I'll include it
-    float longitude, latitude;    // numerical coordinates for the longitude and latitude in degress/minutes
-    char lon,lat;                 // stores the cardinal direction (E/W for lon and N/S for lat)
-    float altitude;               // gps altitude reading
-}GPSMessage_t;
-
-typedef struct LSMMessage {
-    uint32_t time;
-    float acceleration[3];         // stores the X,Y,Z acceleration
-    float gyro[3];                 // stores X,Y,Z gyro orientation
-    //float temp;                  // this was commented off but I'll keep it here in case we use it
-}LSMMessage_t;
-
-typedef struct BMPMessage {
-    uint32_t time;
-    float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
-}BMPMessage_t;
-
-typedef struct LORAMessage {
-    uint32_t ADXL_time;
-    uint16_t ADXL_accel[3];
-
-    uint32_t BNO_time;
-    uint16_t BNO_quat[4];
-    uint16_t BNO_euler[3];
-    uint16_t BNO_magnet[3];
-    uint16_t BNO_accel[3];
-    
-    uint32_t LSM_time;
-    uint16_t LSM_accel[3];
-    uint16_t LSM_gyro[3];
-
-    uint32_t BMP_time;
-    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
-
-    uint32_t GPS_time;
-    uint8_t GPS_sat;
-    uint16_t GPS_lon, GPS_lat;
-    char GPS_lon_dir, GPS_lat_dir;
-    uint16_t GPS_alt;
-} LORAMessage_t;
-
-typedef enum SensorType {
-    SENSOR_GPS = 0,
-    SENSOR_ADXL = 1,
-    SENSOR_BNO  = 2,
-    SENSOR_LSM  = 3,
-    SENSOR_BMP  = 4,
-} SensorType_t;
-
-typedef struct GDQMessage {
-    uint32_t time;
-    SensorType_t sensor;
-
-    union {
-        GPSMessage_t GPSMessage;
-        ADXLMessage_t ADXLMessage;
-        BNOMessage_t BNOMessage;
-        LSMMessage_t LSMMessage;
-        BMPMessage_t BMPMessage;
-    };
-} GDQMessage_t;
-
-
-// SENSOR DATA STORAGE QUEUES
-// GDQ == Global Data Queue
-typedef struct GDQ {
-    QueueHandle_t SensorQueue;
-
-    GPSMessage_t LatestGPSMsg;    // added to make globally available
-    ADXLMessage_t LatestADXLMsg;
-    BNOMessage_t LatestBNOMsg;
-    LSMMessage_t LatestLSMMsg;
-    BMPMessage_t LatestBMPMsg;
-} GDQ_t;
-
 
 GDQ_t GDQ;
 
@@ -435,23 +342,7 @@ void GPS_task(void *pvParameter) {
     }
 }
 
-// returns true on success, false on failure, TODO: [NS] add error modes to this refactor
-bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg)
-{
-    static sensors_event_t event;
-    // if read operation fails, start task over:
-    if(!ADXL->getEvent(&event)) {
-        // xSemaphoreGive(sensor_spi_mutex);
-        return false;
-    }
 
-    // save off our sensor data, add it to queue
-    outputMsg->ADXLMessage.acceleration[0] = event.acceleration.x;
-    outputMsg->ADXLMessage.acceleration[1] = event.acceleration.y;
-    outputMsg->ADXLMessage.acceleration[2] = event.acceleration.z;
-
-    return true;
-}
 void ADXL_task(void *pvParameter) {
     // variable declarations
     GDQMessage_t currentMessage = {
@@ -498,45 +389,6 @@ void ADXL_task(void *pvParameter) {
 
 // TODO: [NS/JL] figure out exactly raw data we have access
 //               to and what it means
-
-bool ReadBNO(Adafruit_BNO055 *BNO, GDQMessage_t *currentMessage)
-{
-    sensors_event_t orientationData, angVelocityData, magnetometerData, accelerometerData;
-    if (!BNO->getEvent(&orientationData, Adafruit_BNO055::VECTOR_EULER)) {
-        return false;
-    }
-    if (!BNO->getEvent(&angVelocityData, Adafruit_BNO055::VECTOR_GYROSCOPE)) {
-        return false;
-    }
-    if (!BNO->getEvent(&magnetometerData, Adafruit_BNO055::VECTOR_MAGNETOMETER)) {
-        return false;
-    }
-    if (!BNO->getEvent(&accelerometerData, Adafruit_BNO055::VECTOR_ACCELEROMETER)) {
-        return false;
-    }
-
-    imu::Quaternion quat = BNO->getQuat();
-
-    //save sensor data and add it to queue
-    currentMessage->BNOMessage.quaternion[0] = quat.w();
-    currentMessage->BNOMessage.quaternion[1] = quat.x();
-    currentMessage->BNOMessage.quaternion[2] = quat.y();
-    currentMessage->BNOMessage.quaternion[3] = quat.z();
-
-    currentMessage->BNOMessage.euler_orientation[0] = angVelocityData.gyro.x;
-    currentMessage->BNOMessage.euler_orientation[1] = angVelocityData.gyro.y;
-    currentMessage->BNOMessage.euler_orientation[2] = angVelocityData.gyro.z;
-
-    currentMessage->BNOMessage.magnetometer[0] = magnetometerData.magnetic.x;
-    currentMessage->BNOMessage.magnetometer[1] = magnetometerData.magnetic.y;
-    currentMessage->BNOMessage.magnetometer[2] = magnetometerData.magnetic.z;
-
-    currentMessage->BNOMessage.acceleration[0] = accelerometerData.acceleration.x;
-    currentMessage->BNOMessage.acceleration[1] = accelerometerData.acceleration.y;
-    currentMessage->BNOMessage.acceleration[2] = accelerometerData.acceleration.z;
-
-    return true;
-}
 void BNO_task(void *pvParameter) {
     // variable declaration
     uint32_t startTime, endTime;
@@ -586,29 +438,6 @@ void BNO_task(void *pvParameter) {
     }
 }
 
-bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage)
-{
-    //Sensor events
-    sensors_event_t accel;
-    sensors_event_t gyro;
-    sensors_event_t temp;
-
-    // if LSM read fails, return mutex, and schedule task again after 1 tick
-    if(!LSM->getEvent(&accel, &gyro, &temp)) {
-        return false;
-    }
-
-    // adds data to LSM struct
-    currentMessage->LSMMessage.acceleration[0] = accel.acceleration.x;
-    currentMessage->LSMMessage.acceleration[1] = accel.acceleration.y;
-    currentMessage->LSMMessage.acceleration[2] = accel.acceleration.z;
-
-    currentMessage->LSMMessage.gyro[0] = gyro.gyro.x;
-    currentMessage->LSMMessage.gyro[1] = gyro.gyro.y;
-    currentMessage->LSMMessage.gyro[2] = gyro.gyro.z;
-
-    return true;
-}
 
 void LSM_task(void *pvParameter) {
 
@@ -664,18 +493,6 @@ void LSM_task(void *pvParameter) {
     }
 }
 
-bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg)
-{
-    if(!BMP->performReading()) {
-        return false;
-    }
-
-    outputMsg->BMPMessage.temp = BMP->temperature;
-    outputMsg->BMPMessage.pressure = BMP->pressure;
-    outputMsg->BMPMessage.altitude = BMP->readAltitude(1013.25f);
-
-    return true;
-}
 
 void BMP_task(void *pvParameter) {
     static bool bmp_up;

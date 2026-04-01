@@ -1,0 +1,120 @@
+// Nathan Samuell Copyright 2026
+
+#include <Arduino.h>
+#include <SD.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_GPS.h>
+#include <Adafruit_ADXL375.h>
+#include <Adafruit_BNO055.h>
+#include <Adafruit_BMP5xx.h>
+#include <Adafruit_LSM6DSO32.h>
+
+
+////////////////////////////////
+/*      TYPE DEFINITIONS      */
+////////////////////////////////
+typedef struct ADXLMessage {
+    uint64_t time;          // ms since start for now (what we're already doing), maybe move to unixtime/RTC later
+    float acceleration[3];  // acceleration data (x, y, z);
+} ADXLMessage_t;
+
+typedef struct BNOMessage {
+    uint64_t uptime;              //uptime from BNO snsor
+    float quaternion[4];          //W,X,Y,Z data
+    float euler_orientation[3];   //x,y,z angular acceleration
+    float magnetometer[3];        //x,y,z, of SOMETHING, not sure yet
+    float acceleration[3];        //x,y,z linear acceleration
+} BNOMessage_t;
+
+typedef struct GPSMessage {
+    uint64_t time;
+    int satellites;               // not sure if this is necessary but I'll include it
+    float longitude, latitude;    // numerical coordinates for the longitude and latitude in degress/minutes
+    char lon,lat;                 // stores the cardinal direction (E/W for lon and N/S for lat)
+    float altitude;               // gps altitude reading
+}GPSMessage_t;
+
+typedef struct LSMMessage {
+    uint64_t time;
+    float acceleration[3];         // stores the X,Y,Z acceleration
+    float gyro[3];                 // stores X,Y,Z gyro orientation
+    //float temp;                  // this was commented off but I'll keep it here in case we use it
+}LSMMessage_t;
+
+typedef struct BMPMessage {
+    uint64_t time;
+    float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
+}BMPMessage_t;
+
+typedef struct LORAMessage {
+    uint64_t ADXL_time;
+    uint16_t ADXL_accel[3];
+
+    uint64_t BNO_time;
+    uint16_t BNO_quat[4];
+    uint16_t BNO_euler[3];
+    uint16_t BNO_magnet[3];
+    uint16_t BNO_accel[3];
+    
+    uint64_t LSM_time;
+    uint16_t LSM_accel[3];
+    uint16_t LSM_gyro[3];
+
+    uint64_t BMP_time;
+    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
+
+    uint64_t GPS_time;
+    uint8_t GPS_sat;
+    uint16_t GPS_lon, GPS_lat;
+    char GPS_lon_dir, GPS_lat_dir;
+    uint16_t GPS_alt;
+
+    // empty for now, here for thanh's ground test. will populate pending state machine integration
+    uint16_t apogeeEstimate;
+    uint8_t flightState;
+} LORAMessage_t;
+
+typedef enum SensorType {
+    SENSOR_GPS = 0,
+    SENSOR_ADXL = 1,
+    SENSOR_BNO  = 2,
+    SENSOR_LSM  = 3,
+    SENSOR_BMP  = 4,
+} SensorType_t;
+
+typedef struct GDQMessage {
+    uint32_t time;
+    SensorType_t sensor;
+
+    union {
+        GPSMessage_t GPSMessage;
+        ADXLMessage_t ADXLMessage;
+        BNOMessage_t BNOMessage;
+        LSMMessage_t LSMMessage;
+        BMPMessage_t BMPMessage;
+    };
+} GDQMessage_t;
+
+
+// SENSOR DATA STORAGE QUEUES
+// GDQ == Global Data Queue
+typedef struct GDQ {
+    QueueHandle_t SensorQueue;
+
+    GPSMessage_t LatestGPSMsg;    // added to make globally available
+    ADXLMessage_t LatestADXLMsg;
+    BNOMessage_t LatestBNOMsg;
+    LSMMessage_t LatestLSMMsg;
+    BMPMessage_t LatestBMPMsg;
+} GDQ_t;
+
+
+////////////////////////////////
+/*    FUNCTION DEFINITIONS    */
+////////////////////////////////
+
+// sensor functions
+bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg);
+bool ReadBNO(Adafruit_BNO055 *BNO, GDQMessage_t *currentMessage);
+bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage);
+bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg);

@@ -1,12 +1,9 @@
 idf_component_register(SRCS 
-    "SRAD_PHX_Ops.cpp"
-    "SRAD_PHX_Sensors.cpp"
-    "SRAD_PHX_State.cpp"
+    "megamind.cpp"
     INCLUDE_DIRS "."
     REQUIRES arduino
             Adafruit_BusIO
             Adafruit_Sensor
-            Adafruit_BMP3XX
             Adafruit_BMP5xx
             Adafruit_ADXL375
             Adafruit_LSM6DS
