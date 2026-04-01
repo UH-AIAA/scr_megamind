@@ -569,7 +569,7 @@ void SD_task(void *pvParameter)
         switch(currentMessage.sensor) {
             case SENSOR_GPS:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%i,%f,%f,%c,%c,%f\n",
+                     "%i,%llu,%i,%f,%f,%c,%c,%f\n",
                      SENSOR_GPS,
                      currentMessage.GPSMessage.time,
                      currentMessage.GPSMessage.satellites,
@@ -580,7 +580,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_ADXL:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f\n",
                      SENSOR_ADXL,
                      currentMessage.ADXLMessage.time,
                      currentMessage.ADXLMessage.acceleration[0], currentMessage.ADXLMessage.acceleration[1], currentMessage.ADXLMessage.acceleration[2]
@@ -588,7 +588,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_BNO:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
                      SENSOR_BNO,
                      currentMessage.BNOMessage.uptime,
                      currentMessage.BNOMessage.quaternion[0], currentMessage.BNOMessage.quaternion[1], currentMessage.BNOMessage.quaternion[2], currentMessage.BNOMessage.quaternion[3],
@@ -600,7 +600,7 @@ void SD_task(void *pvParameter)
 
             case SENSOR_LSM:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f,%f,%f,%f\n",
                      SENSOR_LSM,
                      currentMessage.LSMMessage.time,
                      currentMessage.LSMMessage.acceleration[0], currentMessage.LSMMessage.acceleration[1], currentMessage.LSMMessage.acceleration[2],
@@ -609,7 +609,7 @@ void SD_task(void *pvParameter)
                 break;
             case SENSOR_BMP:
                 n += snprintf(msgBuf + index, remaining,
-                     "%i,%lu,%f,%f,%f\n",
+                     "%i,%llu,%f,%f,%f\n",
                      SENSOR_BMP,
                      currentMessage.BMPMessage.time,
                      currentMessage.BMPMessage.temp,
@@ -689,6 +689,11 @@ void LORA_task(void *pvParameter)
         currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
         currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
         currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
+        
+        // flight state/apogee TODO: [NS] update with state machine
+        currentMessage.apogeeEstimate = 0;
+        currentMessage.flightState = 0;
+
         if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
             // write packet!
