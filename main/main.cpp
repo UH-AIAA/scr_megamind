@@ -196,6 +196,10 @@ extern "C" void app_main()
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
     printf("Mutex addr: %p\n", sd_lora_spi_mutex);
 
+    // TODO: [add calibration functions here for LSM] [NS]
+
+    // TODO: [JF] add altimeter calibration function here!
+
     // sample task for your convenience
 /*    xTaskCreate(
         MegaMind_LAUNCH,    // [in] function pointer

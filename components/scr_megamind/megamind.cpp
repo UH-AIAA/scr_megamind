@@ -194,3 +194,5 @@ bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_A
 
     return true;
 }
+
+// TODO: [JF] implement altitude calibration helper here
