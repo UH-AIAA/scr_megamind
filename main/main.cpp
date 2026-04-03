@@ -73,6 +73,9 @@ File sdData;
 
 // SD Data Header
 const char header[24] = "sensor_code,time,packet";
+float ADXL_ACCEL_BIAS[3];
+float LSM_ACCEL_BIAS[3];
+float LSM_GYRO_BIAS[3];
 
 //SPI mutex
 TaskHandle_t LORA_handle;
@@ -195,6 +198,8 @@ extern "C" void app_main()
     sensor_spi_mutex = xSemaphoreCreateMutex();
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
     printf("Mutex addr: %p\n", sd_lora_spi_mutex);
+
+    printf("Packet size %i\n", sizeof(LORAMessage_t));
 
     // TODO: [add calibration functions here for LSM] [NS]
 
@@ -363,7 +368,7 @@ void ADXL_task(void *pvParameter) {
         // attempt to take mutex, code inside blocked until mutex is released
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
             // if success,
-            adxl_up = ReadADXL(&ADXL, &currentMessage);
+            adxl_up = ReadADXL(&ADXL, &currentMessage, LSM_ACCEL_BIAS);
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }
@@ -462,7 +467,7 @@ void LSM_task(void *pvParameter) {
         {
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
-            if(ReadLSM(&LSM, &currentMessage)) {
+            if(ReadLSM(&LSM, &currentMessage, LSM_ACCEL_BIAS, LSM_GYRO_BIAS)) {
                 currentMessage.time = startTime;
                 // writes data to queue
                 if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
@@ -682,6 +687,8 @@ void LORA_task(void *pvParameter)
         currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
         currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
 
+        // TODO: [NS] Fix this by adding the rest of the data
+
         currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
         currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
         currentMessage.BMP_pressure = (int16_t)(GDQ.LatestBMPMsg.pressure);
@@ -693,7 +700,8 @@ void LORA_task(void *pvParameter)
         currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
         currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
         currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
-        
+        currentMessage.GPS_alt = GDQ.LatestGPSMsg.altitude;
+
         // flight state/apogee TODO: [NS] update with state machine
         currentMessage.apogeeEstimate = 0;
         currentMessage.flightState = 0;
