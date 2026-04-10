@@ -59,7 +59,7 @@
 #define LORA_FREQ 915E6
 
 // Debug control definitions
-// #define DEBUG
+#define DEBUG
 #define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
@@ -136,13 +136,13 @@ void init_spi() {
     // sdData.println(header);
 
     // LORA setup (Thanh's work!)
-    LoRa.setSPI(SPI2);
-    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    if(!LoRa.begin(LORA_FREQ))
-    {
-        printf("LoRa.begin failed!\n");
-        while (1) {};
-    }
+    // LoRa.setSPI(SPI2);
+    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    // if(!LoRa.begin(LORA_FREQ))
+    // {
+    //     printf("LoRa.begin failed!\n");
+    //     while (1) {};
+    // }
 }
 
 void init_I2C() {
@@ -154,6 +154,7 @@ void init_I2C() {
     GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
 
     // BNO begin
+    // TODO: [NS] - figure out how to set BNO to manual
     BNO.begin();
 }
 
@@ -683,6 +684,7 @@ void LORA_task(void *pvParameter)
         currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
         
         currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
+        // printf("lsm time: ")
         currentMessage.LSM_accel[0] = (int16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
         currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
         currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
