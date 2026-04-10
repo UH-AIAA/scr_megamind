@@ -82,7 +82,7 @@ bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage, float accelB
     return true;
 }
 
-bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg)
+bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg, float* altBias)
 {
     if(!BMP->performReading()) {
         return false;
@@ -90,7 +90,7 @@ bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg)
 
     outputMsg->BMPMessage.temp = BMP->temperature;
     outputMsg->BMPMessage.pressure = BMP->pressure;
-    outputMsg->BMPMessage.altitude = BMP->readAltitude(1013.25f);
+    outputMsg->BMPMessage.altitude = BMP->readAltitude(1013.25f) - (*altBias);
 
     return true;
 }
@@ -195,4 +195,26 @@ bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_A
     return true;
 }
 
-// TODO: [JF] implement altitude calibration helper here
+bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int numSamples, const int divergenceThresh)
+{
+    GDQMessage_t currentReading;
+    Welford_state bmpAlt;
+
+    currentReading.sensor = SENSOR_BMP;
+    
+    // calibrate
+    for(int i = 0; i < numSamples; i++) {
+        ReadBMP(BMP, &currentReading, BMP_ALT_BIAS);
+        Welford_Calibration(&bmpAlt, currentReading.BMPMessage.altitude);
+    }
+    
+    //divergence check
+    if(bmpAlt.mean > divergenceThresh) {
+        return false;
+    }
+    
+    // update bias
+    *BMP_ALT_BIAS = bmpAlt.mean;
+
+    return true;
+}

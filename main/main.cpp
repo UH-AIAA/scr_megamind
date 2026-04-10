@@ -76,6 +76,7 @@ const char header[24] = "sensor_code,time,packet";
 float ADXL_ACCEL_BIAS[3];
 float LSM_ACCEL_BIAS[3];
 float LSM_GYRO_BIAS[3];
+float BMP_ALT_BIAS;
 
 //SPI mutex
 TaskHandle_t LORA_handle;
@@ -204,7 +205,7 @@ extern "C" void app_main()
 
     // TODO: [add calibration functions here for LSM] [NS]
 
-    // TODO: [JF] add altimeter calibration function here!
+    // TODO: [JF] call altimeter calibration function here!
 
     // sample task for your convenience
 /*    xTaskCreate(
@@ -520,7 +521,7 @@ void BMP_task(void *pvParameter) {
             // time system
             startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
-            bmp_up = ReadBMP(&BMP, &currentMessage);
+            bmp_up = ReadBMP(&BMP, &currentMessage, &BMP_ALT_BIAS);
             xSemaphoreGive(sensor_spi_mutex);//gives back mutex
             endTime = esp_timer_get_time();
 
