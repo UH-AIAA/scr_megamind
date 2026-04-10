@@ -134,9 +134,9 @@ typedef enum {
 bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg, float accelBias[3]);
 bool ReadBNO(Adafruit_BNO055 *BNO, GDQMessage_t *currentMessage);
 bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage, float accelBias[3], float gyroBias[3]);
-bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg);
+bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg, float* altBias);
 
 // calibration helpers
 int Welford_Calibration(Welford_state *Welford, float calibration_data);
 bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_ACCEL_BIAS[3], float LSM_ACCEL_BIAS[3], float LSM_GYRO_BIAS[3], const int numSamples, const int divergenceThresh);
-// TODO: [JF] add calibrateAltimeter (or call it something similar) here!
+bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_BIAS, const int numSamples, const int divergenceThresh);
