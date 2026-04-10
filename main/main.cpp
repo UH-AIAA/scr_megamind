@@ -28,7 +28,7 @@
 #include "LoRa.h"
 
 // SRAD Imports
- #include "megamind.h"
+#include "megamind.h"
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -199,13 +199,18 @@ extern "C" void app_main()
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
-    printf("Mutex addr: %p\n", sd_lora_spi_mutex);
-
-    printf("Packet size %i\n", sizeof(LORAMessage_t));
 
     // TODO: [add calibration functions here for LSM] [NS]
+    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, 4096, 10))
+    {
+        printf("IMU Calibration Failed!\n");
+    }
 
     // TODO: [JF] call altimeter calibration function here!
+    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 1024, 10))
+    {
+        printf("Altitude Calibration Failed!\n");
+    }
 
     // sample task for your convenience
 /*    xTaskCreate(
@@ -370,7 +375,7 @@ void ADXL_task(void *pvParameter) {
         // attempt to take mutex, code inside blocked until mutex is released
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
             // if success,
-            adxl_up = ReadADXL(&ADXL, &currentMessage, LSM_ACCEL_BIAS);
+            adxl_up = ReadADXL(&ADXL, &currentMessage, ADXL_ACCEL_BIAS);
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }

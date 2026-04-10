@@ -12,9 +12,9 @@ bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg, float accelBias[3
     }
 
     // save off our sensor data, add it to queue
-    outputMsg->ADXLMessage.acceleration[0] = event.acceleration.x - accelBias[0];
-    outputMsg->ADXLMessage.acceleration[1] = event.acceleration.y - accelBias[1];
-    outputMsg->ADXLMessage.acceleration[2] = event.acceleration.z - accelBias[2];
+    outputMsg->ADXLMessage.acceleration[0] = float(event.acceleration.x) - accelBias[0];
+    outputMsg->ADXLMessage.acceleration[1] = float(event.acceleration.y) - accelBias[1];
+    outputMsg->ADXLMessage.acceleration[2] = float(event.acceleration.z) - accelBias[2];
 
     return true;
 }
@@ -183,7 +183,7 @@ bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_A
     // update biases
     ADXL_ACCEL_BIAS[0] = adxlAccel[0].mean;
     ADXL_ACCEL_BIAS[1] = adxlAccel[1].mean;
-    ADXL_ACCEL_BIAS[1] = adxlAccel[2].mean;
+    ADXL_ACCEL_BIAS[2] = adxlAccel[2].mean;
 
     LSM_ACCEL_BIAS[0] = lsmAccel[0].mean;
     LSM_ACCEL_BIAS[1] = lsmAccel[1].mean;
