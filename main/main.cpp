@@ -36,11 +36,20 @@
 #define SPI_MOSI_PIN 11
 #define SPI_MAX_TRSZ 4096
 
+// used for hardware prototype that's flipped
+// #define SPI_SCLK_PIN 18
+// #define SPI_MISO_PIN 16
+// #define SPI_MOSI_PIN 17
+
+// #define VSPI_SCLK_PIN 12
+// #define VSPI_MISO_PIN 11
+// #define VSPI_MOSI_PIN 13
+
 // SD+LoRa SPI Init
 #define VSPI_SCLK_PIN 18
 #define VSPI_MISO_PIN 17
 #define VSPI_MOSI_PIN 16
-// #define VSPI_MAX_TRSZ 4092
+#define VSPI_MAX_TRSZ 4092
 
 // I^2C Init
 #define I2C_SDA 8
@@ -137,13 +146,13 @@ void init_spi() {
     // sdData.println(header);
 
     // LORA setup (Thanh's work!)
-    // LoRa.setSPI(SPI2);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    // if(!LoRa.begin(LORA_FREQ))
-    // {
-    //     printf("LoRa.begin failed!\n");
-    //     while (1) {};
-    // }
+    LoRa.setSPI(SPI2);
+    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    if(!LoRa.begin(LORA_FREQ))
+    {
+        printf("LoRa.begin failed!\n");
+        while (1) {};
+    }
 }
 
 void init_I2C() {
@@ -206,11 +215,16 @@ extern "C" void app_main()
         printf("IMU Calibration Failed!\n");
     }
 
+    printf("LSM X, Y, Z bias: %f, %f, %f\n", LSM_ACCEL_BIAS[0], LSM_ACCEL_BIAS[1], LSM_ACCEL_BIAS[2]);
+    printf("ADXL X, Y, Z bias: %f, %f, %f\n", ADXL_ACCEL_BIAS[0], ADXL_ACCEL_BIAS[1], ADXL_ACCEL_BIAS[2]);
+
+
     // TODO: [JF] call altimeter calibration function here!
-    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 1024, 10))
+    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 4096, 10))
     {
         printf("Altitude Calibration Failed!\n");
     }
+    printf("alt bias: %f\n\n", BMP_ALT_BIAS);
 
     // sample task for your convenience
 /*    xTaskCreate(

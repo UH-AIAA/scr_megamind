@@ -114,7 +114,7 @@ int Welford_Calibration(Welford_state *Welford, float calibration_data)
     
     //Calculate the variance    
     if ((Welford->n) != 1) {
-        Welford->variance = (Welford->mediary_unit) / (Welford->n);
+        Welford->variance = (Welford->mediary_unit) / ((Welford->n) - 1);
         // this will live in the calibrate LSM function
         // if(Welford->variance >= LSM_GYRO_VARIANCE_THRESHOLD) {
         //     return WELFORD_ERR_VAR_DIVERGE;
@@ -132,6 +132,11 @@ bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_A
     Welford_state adxlAccel[3];
     Welford_state lsmAccel[3];
     Welford_state lsmGyro[3];
+
+    // archaic syntax, but initialize everything to zeroes
+    memset(adxlAccel, 0, sizeof(adxlAccel));
+    memset(lsmAccel, 0, sizeof(lsmAccel));
+    memset(lsmGyro, 0, sizeof(lsmGyro));
 
     // start with ADXL
     currentReading.sensor = SENSOR_ADXL;
@@ -200,16 +205,20 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
     GDQMessage_t currentReading;
     Welford_state bmpAlt;
 
+    // again archaic syntax but it works
+    memset(&bmpAlt, 0, sizeof(bmpAlt));
+
     currentReading.sensor = SENSOR_BMP;
     
     // calibrate
     for(int i = 0; i < numSamples; i++) {
         ReadBMP(BMP, &currentReading, BMP_ALT_BIAS);
+        printf("BMP DATA: %f\n", currentReading.BMPMessage.altitude);
         Welford_Calibration(&bmpAlt, currentReading.BMPMessage.altitude);
     }
     
     //divergence check
-    if(bmpAlt.mean > divergenceThresh) {
+    if(bmpAlt.variance > divergenceThresh) {
         return false;
     }
     
