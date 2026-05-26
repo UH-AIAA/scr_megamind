@@ -46,33 +46,35 @@ typedef struct BMPMessage {
     float temp, pressure, altitude;    // temperature in celcius, pressure in pascals, altitude from sea level
 }BMPMessage_t;
 
+#pragma pack(push, 1)
 typedef struct LORAMessage {
+    uint64_t BMP_time;
+    int16_t BMP_temp, BMP_pressure, BMP_altitude;
+
+    uint64_t LSM_time;
+    int16_t LSM_accel[3];
+    int16_t LSM_gyro[3];
+
     uint64_t ADXL_time;
-    uint16_t ADXL_accel[3];
+    int16_t ADXL_accel[3];
 
     uint64_t BNO_time;
-    uint16_t BNO_quat[4];
-    uint16_t BNO_euler[3];
-    uint16_t BNO_magnet[3];
-    uint16_t BNO_accel[3];
-    
-    uint64_t LSM_time;
-    uint16_t LSM_accel[3];
-    uint16_t LSM_gyro[3];
-
-    uint64_t BMP_time;
-    uint16_t BMP_temp, BMP_pressure, BMP_altitude;
+    int16_t BNO_quat[4];
+    int16_t BNO_euler[3];
+    int16_t BNO_magnet[3];
+    int16_t BNO_accel[3];
 
     uint64_t GPS_time;
-    uint8_t GPS_sat;
-    uint16_t GPS_lon, GPS_lat;
+    int8_t GPS_sat;
+    int16_t GPS_lon, GPS_lat;
     char GPS_lon_dir, GPS_lat_dir;
-    uint16_t GPS_alt;
+    int16_t GPS_alt;
 
     // empty for now, here for thanh's ground test. will populate pending state machine integration
-    uint16_t apogeeEstimate;
     uint8_t flightState;
+    float apogeeEstimate;
 } LORAMessage_t;
+#pragma pack(pop)
 
 typedef enum SensorType {
     SENSOR_GPS = 0,
@@ -83,7 +85,8 @@ typedef enum SensorType {
 } SensorType_t;
 
 typedef struct GDQMessage {
-    uint32_t time;
+    // tentatively removed, using the individual message time bugs as well
+    // uint32_t time;
     SensorType_t sensor;
 
     union {
@@ -94,7 +97,6 @@ typedef struct GDQMessage {
         BMPMessage_t BMPMessage;
     };
 } GDQMessage_t;
-
 
 // SENSOR DATA STORAGE QUEUES
 // GDQ == Global Data Queue
@@ -108,13 +110,34 @@ typedef struct GDQ {
     BMPMessage_t LatestBMPMsg;
 } GDQ_t;
 
+// calibration data types
+//Defining a struct to keep relevant data together update them
+typedef struct {
+    uint32_t n;
+    float mean;
+    float variance;
+    float mediary_unit;
+} Welford_state;
+
+//Enumerating variables as constants equivalent to error codes
+typedef enum {
+    WELFORD_SUCCESS                 = 0,    // success
+    WELFORD_ERR_DBZ                 = 1,    // divide by zero error
+    WELFORD_ERR_INVALID_SAMPLE_SIZE = 2,    // too few samples (<0)
+    WELFORD_ERR_VAR_DIVERGE         = 3,    // variance > threshold
+};
 
 ////////////////////////////////
 /*    FUNCTION DEFINITIONS    */
 ////////////////////////////////
 
 // sensor functions
-bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg);
+bool ReadADXL(Adafruit_ADXL375* ADXL, GDQMessage_t *outputMsg, float accelBias[3]);
 bool ReadBNO(Adafruit_BNO055 *BNO, GDQMessage_t *currentMessage);
-bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage);
-bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg);
+bool ReadLSM(Adafruit_LSM6DSO32 *LSM, GDQMessage_t *currentMessage, float accelBias[3], float gyroBias[3]);
+bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg, float* altBias);
+
+// calibration helpers
+int Welford_Calibration(Welford_state *Welford, float calibration_data);
+bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_ACCEL_BIAS[3], float LSM_ACCEL_BIAS[3], float LSM_GYRO_BIAS[3], const int numSamples, const int divergenceThresh);
+bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_BIAS, const int numSamples, const int divergenceThresh);

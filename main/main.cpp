@@ -28,7 +28,7 @@
 #include "LoRa.h"
 
 // SRAD Imports
- #include "megamind.h"
+#include "megamind.h"
 
 // Sensor SPI init
 #define SPI_SCLK_PIN 12
@@ -36,11 +36,20 @@
 #define SPI_MOSI_PIN 11
 #define SPI_MAX_TRSZ 4096
 
+// used for hardware prototype that's flipped
+// #define SPI_SCLK_PIN 18
+// #define SPI_MISO_PIN 16
+// #define SPI_MOSI_PIN 17
+
+// #define VSPI_SCLK_PIN 12
+// #define VSPI_MISO_PIN 11
+// #define VSPI_MOSI_PIN 13
+
 // SD+LoRa SPI Init
 #define VSPI_SCLK_PIN 18
 #define VSPI_MISO_PIN 17
 #define VSPI_MOSI_PIN 16
-// #define VSPI_MAX_TRSZ 4092
+#define VSPI_MAX_TRSZ 4092
 
 // I^2C Init
 #define I2C_SDA 8
@@ -59,7 +68,7 @@
 #define LORA_FREQ 915E6
 
 // Debug control definitions
-// #define DEBUG
+#define DEBUG
 #define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
@@ -73,6 +82,10 @@ File sdData;
 
 // SD Data Header
 const char header[24] = "sensor_code,time,packet";
+float ADXL_ACCEL_BIAS[3];
+float LSM_ACCEL_BIAS[3];
+float LSM_GYRO_BIAS[3];
+float BMP_ALT_BIAS;
 
 //SPI mutex
 TaskHandle_t LORA_handle;
@@ -100,15 +113,16 @@ void init_spi() {
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
-    // TODO: [DA] - configure LSM acceleration range based off of acceleration curve
 
-    // TODO: [DA] - configure ADXL acceleration range based off of acceleration curve
+    // use LSM for fine-tuned coast data, set to smallest interval(+- 4Gs)
+    LSM.setAccelRange(LSM6DSO32_ACCEL_RANGE_32_G);
+    // additionally set roll rate in degs/sec, pulled from rocksim pro data
+    LSM.setGyroRange(LSM6DS_GYRO_RANGE_1000_DPS); // guess, waiting on data from dedah
+
+
+    // max G-force ~= 14 Gs, setting to +- 16Gs.
+    ADXL.setRange(ADXL343_RANGE_16_G);
     
-    // // LORA setup (Thanh's work!)
-    // LoRa.setSPI(SPI2);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    // LoRa.begin(LORA_FREQ);
-
     // SD setup
     if(!SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
         while(1){
@@ -151,7 +165,9 @@ void init_I2C() {
     GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_ALLDATA);
 
     // BNO begin
+    // TODO: [NS] - figure out how to set BNO to manual
     BNO.begin();
+    BNO.setExtCrystalUse(true);
 }
 
 // init queues
@@ -194,7 +210,23 @@ extern "C" void app_main()
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
-    printf("Mutex addr: %p\n", sd_lora_spi_mutex);
+
+    // TODO: [add calibration functions here for LSM] [NS]
+    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, 4096, 10))
+    {
+        printf("IMU Calibration Failed!\n");
+    }
+
+    printf("LSM X, Y, Z bias: %f, %f, %f\n", LSM_ACCEL_BIAS[0], LSM_ACCEL_BIAS[1], LSM_ACCEL_BIAS[2]);
+    printf("ADXL X, Y, Z bias: %f, %f, %f\n", ADXL_ACCEL_BIAS[0], ADXL_ACCEL_BIAS[1], ADXL_ACCEL_BIAS[2]);
+
+
+    // TODO: [JF] call altimeter calibration function here!
+    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 4096, 10))
+    {
+        printf("Altitude Calibration Failed!\n");
+    }
+    printf("alt bias: %f\n\n", BMP_ALT_BIAS);
 
     // sample task for your convenience
 /*    xTaskCreate(
@@ -359,13 +391,13 @@ void ADXL_task(void *pvParameter) {
         // attempt to take mutex, code inside blocked until mutex is released
         if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
             // if success,
-            adxl_up = ReadADXL(&ADXL, &currentMessage);
+            adxl_up = ReadADXL(&ADXL, &currentMessage, ADXL_ACCEL_BIAS);
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }
 
         if (adxl_up) {
-            currentMessage.time = startTime;
+            currentMessage.ADXLMessage.time = startTime;
             // write data to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
             GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
@@ -407,7 +439,7 @@ void BNO_task(void *pvParameter) {
 
         if(ReadBNO(&BNO, &currentMessage))
         {
-            currentMessage.time = startTime;
+            currentMessage.BNOMessage.uptime = startTime;
 
             //write message to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
@@ -458,8 +490,8 @@ void LSM_task(void *pvParameter) {
         {
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
-            if(ReadLSM(&LSM, &currentMessage)) {
-                currentMessage.time = startTime;
+            if(ReadLSM(&LSM, &currentMessage, LSM_ACCEL_BIAS, LSM_GYRO_BIAS)) {
+                currentMessage.LSMMessage.time = startTime;
                 // writes data to queue
                 if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
                 {
@@ -510,13 +542,11 @@ void BMP_task(void *pvParameter) {
             // time system
             startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
-            bmp_up = ReadBMP(&BMP, &currentMessage);
+            bmp_up = ReadBMP(&BMP, &currentMessage, &BMP_ALT_BIAS);
             xSemaphoreGive(sensor_spi_mutex);//gives back mutex
             endTime = esp_timer_get_time();
 
             if(bmp_up) {
-                // TODO: [NS] add calibration
-
                 // adds data to struct
                 currentMessage.BMPMessage.time = startTime;
                 // writes data to queue
@@ -672,11 +702,26 @@ void LORA_task(void *pvParameter)
         currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
         currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
         currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+
+        currentMessage.BNO_euler[0] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[0] * 1000);
+        currentMessage.BNO_euler[1] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[1] * 1000);
+        currentMessage.BNO_euler[2] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[2] * 1000);
+
+        currentMessage.BNO_magnet[0] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[0] * 1000);
+        currentMessage.BNO_magnet[1] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[1] * 1000);
+        currentMessage.BNO_magnet[2] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[2] * 1000);
+
+        currentMessage.BNO_accel[0] = (int16_t)(GDQ.LatestBNOMsg.acceleration[0] * 1000);
+        currentMessage.BNO_accel[1] = (int16_t)(GDQ.LatestBNOMsg.acceleration[1] * 1000);
+        currentMessage.BNO_accel[2] = (int16_t)(GDQ.LatestBNOMsg.acceleration[2] * 1000);
         
         currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
+        // printf("lsm time: ")
         currentMessage.LSM_accel[0] = (int16_t)(GDQ.LatestLSMMsg.acceleration[0] * 1000);
         currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
         currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
+
+        // TODO: [NS] Fix this by adding the rest of the data
 
         currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
         currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
@@ -689,7 +734,8 @@ void LORA_task(void *pvParameter)
         currentMessage.GPS_lon = (int16_t)(GDQ.LatestGPSMsg.longitude);
         currentMessage.GPS_lat_dir = GDQ.LatestGPSMsg.lat;
         currentMessage.GPS_lon_dir = GDQ.LatestGPSMsg.lon;
-        
+        currentMessage.GPS_alt = GDQ.LatestGPSMsg.altitude;
+
         // flight state/apogee TODO: [NS] update with state machine
         currentMessage.apogeeEstimate = 0;
         currentMessage.flightState = 0;
