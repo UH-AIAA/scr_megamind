@@ -213,7 +213,7 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
     // calibrate
     for(int i = 0; i < numSamples; i++) {
         ReadBMP(BMP, &currentReading, BMP_ALT_BIAS);
-        printf("BMP DATA: %f\n", currentReading.BMPMessage.altitude);
+        // printf("BMP DATA: %f\n", currentReading.BMPMessage.altitude);
         Welford_Calibration(&bmpAlt, currentReading.BMPMessage.altitude);
     }
     

@@ -85,7 +85,8 @@ typedef enum SensorType {
 } SensorType_t;
 
 typedef struct GDQMessage {
-    uint32_t time;
+    // tentatively removed, using the individual message time bugs as well
+    // uint32_t time;
     SensorType_t sensor;
 
     union {

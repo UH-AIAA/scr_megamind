@@ -113,15 +113,16 @@ void init_spi() {
     BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
-    // TODO: [DA] - configure LSM acceleration range based off of acceleration curve
 
-    // TODO: [DA] - configure ADXL acceleration range based off of acceleration curve
+    // use LSM for fine-tuned coast data, set to smallest interval(+- 4Gs)
+    LSM.setAccelRange(LSM6DSO32_ACCEL_RANGE_32_G);
+    // additionally set roll rate in degs/sec, pulled from rocksim pro data
+    LSM.setGyroRange(LSM6DS_GYRO_RANGE_1000_DPS); // guess, waiting on data from dedah
+
+
+    // max G-force ~= 14 Gs, setting to +- 16Gs.
+    ADXL.setRange(ADXL343_RANGE_16_G);
     
-    // // LORA setup (Thanh's work!)
-    // LoRa.setSPI(SPI2);
-    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    // LoRa.begin(LORA_FREQ);
-
     // SD setup
     if(!SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
         while(1){
@@ -166,6 +167,7 @@ void init_I2C() {
     // BNO begin
     // TODO: [NS] - figure out how to set BNO to manual
     BNO.begin();
+    BNO.setExtCrystalUse(true);
 }
 
 // init queues
@@ -395,7 +397,7 @@ void ADXL_task(void *pvParameter) {
         }
 
         if (adxl_up) {
-            currentMessage.time = startTime;
+            currentMessage.ADXLMessage.time = startTime;
             // write data to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
             GDQ.LatestADXLMsg = currentMessage.ADXLMessage;
@@ -437,7 +439,7 @@ void BNO_task(void *pvParameter) {
 
         if(ReadBNO(&BNO, &currentMessage))
         {
-            currentMessage.time = startTime;
+            currentMessage.BNOMessage.uptime = startTime;
 
             //write message to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
@@ -489,7 +491,7 @@ void LSM_task(void *pvParameter) {
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
             if(ReadLSM(&LSM, &currentMessage, LSM_ACCEL_BIAS, LSM_GYRO_BIAS)) {
-                currentMessage.time = startTime;
+                currentMessage.LSMMessage.time = startTime;
                 // writes data to queue
                 if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
                 {
@@ -545,8 +547,6 @@ void BMP_task(void *pvParameter) {
             endTime = esp_timer_get_time();
 
             if(bmp_up) {
-                // TODO: [NS] add calibration
-
                 // adds data to struct
                 currentMessage.BMPMessage.time = startTime;
                 // writes data to queue
@@ -702,6 +702,18 @@ void LORA_task(void *pvParameter)
         currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
         currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
         currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+
+        currentMessage.BNO_euler[0] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[0] * 1000);
+        currentMessage.BNO_euler[1] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[1] * 1000);
+        currentMessage.BNO_euler[2] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[2] * 1000);
+
+        currentMessage.BNO_magnet[0] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[0] * 1000);
+        currentMessage.BNO_magnet[1] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[1] * 1000);
+        currentMessage.BNO_magnet[2] = (int16_t)(GDQ.LatestBNOMsg.magnetometer[2] * 1000);
+
+        currentMessage.BNO_accel[0] = (int16_t)(GDQ.LatestBNOMsg.acceleration[0] * 1000);
+        currentMessage.BNO_accel[1] = (int16_t)(GDQ.LatestBNOMsg.acceleration[1] * 1000);
+        currentMessage.BNO_accel[2] = (int16_t)(GDQ.LatestBNOMsg.acceleration[2] * 1000);
         
         currentMessage.LSM_time = GDQ.LatestLSMMsg.time;
         // printf("lsm time: ")
