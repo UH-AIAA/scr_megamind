@@ -9,6 +9,8 @@
 #include <Adafruit_BMP5xx.h>
 #include <Adafruit_LSM6DSO32.h>
 
+#include "megamind_const.h"
+
 
 ////////////////////////////////
 /*      TYPE DEFINITIONS      */
@@ -151,6 +153,7 @@ bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_A
 bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_BIAS, const int numSamples, const int divergenceThresh);
 
 // TODO: state machine
-bool IdleToAscent();
+bool FSM(GDQMessage_t& currMsg);
+bool IdleToAscent(float currAccelMag, uint8_t& counter);
 bool AscentToDescent();
 bool DescentToLanded();

@@ -9,3 +9,5 @@
 #define CALIBRATION_DIVERGE_THRESH 10
 
 // state machine tunables
+#define ASCENT_THRESHOLD 40       // m/s^2, roughly 4Gs
+#define REQ_COUNT_STATE_CHANGE 5  // number of valid checks required before a state change is allowed

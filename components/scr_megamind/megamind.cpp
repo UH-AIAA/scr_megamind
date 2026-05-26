@@ -228,9 +228,123 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
     return true;
 }
 
-bool IdleToAscent()
+bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState)
 {
+    // init
+    bool useLSM = false;
+    static uint8_t eventCounter = 0;  // static to maintain, updated by helpers
+    float accelMagADXL = 0;
+    float accelMagLSM = 0;
+
+    switch (fsmState) {
+        case FSM_IDLE:
+            // first, do we care about this message?
+            if(!(currMsg.sensor == SENSOR_ADXL || currMsg.sensor == SENSOR_LSM))
+            {
+                // if not, skip
+                break;
+            }
+
+            // next, is our current accelerometer the "active" one?
+            if(currMsg.sensor == SENSOR_ADXL)
+            {
+                // is our current acceleration outside of the LSM's setpoint?
+                accelMagADXL = sqrt(
+                                 pow(currMsg.ADXLMessage.acceleration[0], 2) + 
+                                 pow(currMsg.ADXLMessage.acceleration[1], 2) + 
+                                 pow(currMsg.ADXLMessage.acceleration[2], 2)
+                );
+
+                // if LSM should be used,
+                if (accelMagADXL <= 39.24)
+                {
+                    // exit early
+                    break;
+                }
+                useLSM = false;
+            } 
+            else
+            {
+                accelMagLSM = sqrt(
+                                pow(currMsg.LSMMessage.acceleration[0], 2) +
+                                pow(currMsg.LSMMessage.acceleration[1], 2) +
+                                pow(currMsg.LSMMessage.acceleration[2], 2)
+                );
+
+                // if LSM should be used,
+                // TODO: what does data look like with LSM maxed?
+                if (accelMagLSM >= 37.00)
+                {
+                    // exit early
+                    break;
+                }
+                useLSM = true;
+            }
+
+            // if we're in LSM range,
+            if (useLSM)
+            {
+                // feed in LSM data
+                if(IdleToAscent(accelMagLSM, eventCounter))
+                {
+                    fsmState = FSM_ASCENT;
+                }
+            }
+
+            // otherwise, use ADXL
+            else
+            {
+                // feed in ADXL data
+                if(IdleToAscent(accelMagADXL, eventCounter))
+                {
+                    fsmState = FSM_ASCENT;
+                }
+            }
+                
+        case FSM_ASCENT:
+            if(AscentToDescent()) {
+                fsmState = FSM_DESCENT;
+            }
+            
+        case FSM_DESCENT:
+            if(DescentToLanded()) {
+                fsmState = FSM_LANDED;
+            }
+            
+
+        // if we're landed, stop running FSM
+        case FSM_LANDED:
+            return false;
+    }
+
     return true;
+}
+
+bool IdleToAscent(float currentAccelMag, uint8_t& counter)
+{   
+    // if acceleration is above launch threshold, 
+    if (currentAccelMag >= ASCENT_THRESHOLD)
+    {
+        // update counter
+        counter++;
+    } else
+    {
+        // reset counter if conditions aren't met
+        counter = 0;
+    }
+
+    // if we've seen enough high accelerations read,
+    if (counter == REQ_COUNT_STATE_CHANGE)
+    {
+        // reset counter   
+        counter = 0;
+
+        // change state
+        return true;
+    }
+
+    // otherwise, state stays the same
+    return false;
 }
 
 bool AscentToDescent()

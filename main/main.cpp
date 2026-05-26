@@ -57,7 +57,7 @@ static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
 
 GDQ_t GDQ;
-uint8_t fsmState;
+uint8_t fsmState = 0;
 
 void init_spi() {
     // use Arduino SPI (for now...)
@@ -555,7 +555,6 @@ void SD_task(void *pvParameter)
     static int n;
     static uint32_t flushCounter = 0;
     
-
     GDQMessage_t currentMessage;
 
     // TODO: [NS] make these #defines
@@ -567,6 +566,9 @@ void SD_task(void *pvParameter)
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
+        
+        // for now, run state machine in here:
+        FSM(currentMessage, fsmState);
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
@@ -736,29 +738,9 @@ void LORA_task(void *pvParameter)
 
 void FSM_task(void *pvParameter)
 {
+    bool useLSM = false;
     while(1)
     {
-        // TODO: ingest data
-        switch (fsmState) {
-            case FSM_IDLE:
-                if(IdleToAscent()) {
-                    fsmState = FSM_ASCENT;
-                }
-                
-            case FSM_ASCENT:
-                if(AscentToDescent()) {
-                    fsmState = FSM_DESCENT;
-                }
-            
-            case FSM_DESCENT:
-                if(DescentToLanded()) {
-                    fsmState = FSM_LANDED;
-                }
-            
-
-            // if we're landed, stop running FSM
-            case FSM_LANDED:
-                vTaskDelete(NULL);
-        }
+        
     }
 }
