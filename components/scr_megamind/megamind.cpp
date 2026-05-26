@@ -227,3 +227,18 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
 
     return true;
 }
+
+bool IdleToAscent()
+{
+    return true;
+}
+
+bool AscentToDescent()
+{
+    return true;
+}
+
+bool DescentToLanded()
+{
+    return true;
+}

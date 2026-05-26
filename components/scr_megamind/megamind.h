@@ -127,6 +127,14 @@ typedef enum {
     WELFORD_ERR_VAR_DIVERGE         = 3,    // variance > threshold
 };
 
+// Enumerating vasriabels as constants equivalent to flight states
+typedef enum {
+    FSM_IDLE    = 0,
+    FSM_ASCENT  = 1,
+    FSM_DESCENT = 2,
+    FSM_LANDED  = 3,
+};
+
 ////////////////////////////////
 /*    FUNCTION DEFINITIONS    */
 ////////////////////////////////
@@ -141,3 +149,8 @@ bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg, float* altBias);
 int Welford_Calibration(Welford_state *Welford, float calibration_data);
 bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_ACCEL_BIAS[3], float LSM_ACCEL_BIAS[3], float LSM_GYRO_BIAS[3], const int numSamples, const int divergenceThresh);
 bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_BIAS, const int numSamples, const int divergenceThresh);
+
+// TODO: state machine
+bool IdleToAscent();
+bool AscentToDescent();
+bool DescentToLanded();
