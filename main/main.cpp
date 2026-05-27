@@ -33,7 +33,7 @@
 #include "megamind_const.h"
 
 // Debug control definitions
-#define DEBUG
+// #define DEBUG
 
 // Chip Object Instantiation
 Adafruit_BMP5xx BMP;
@@ -282,16 +282,6 @@ extern "C" void app_main()
     xTaskCreatePinnedToCore(
         BMP_task,
         "BMP_task", 5000, NULL, 4,
-        NULL,
-        0
-    );
-
-    xTaskCreatePinnedToCore(
-        FSM_task,
-        "FSM_task",
-        5000,
-        NULL,
-        1,
         NULL,
         0
     );
@@ -581,7 +571,6 @@ void SD_task(void *pvParameter)
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
         
         // for now, run state machine in here:
-        FSM(currentMessage, fsmState);
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
@@ -746,14 +735,5 @@ void LORA_task(void *pvParameter)
                 printf("Time Elapsed LoRa: %lu\n", endTime - startTime);
             #endif
         }   
-    }
-}
-
-void FSM_task(void *pvParameter)
-{
-    bool useLSM = false;
-    while(1)
-    {
-        
     }
 }
