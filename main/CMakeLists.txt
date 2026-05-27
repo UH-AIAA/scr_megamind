@@ -3,6 +3,7 @@ idf_component_register(SRCS "main.cpp"
                     REQUIRES 
                     arduino
                     LoRa
+                    RTClib
                     Adafruit_BusIO
                     Adafruit_Sensor
                     # Adafruit_BMP3XX
