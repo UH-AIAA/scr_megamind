@@ -26,6 +26,7 @@
 #include "Adafruit_BNO055.h"
 #include "Adafruit_GPS.h"
 #include "LoRa.h"
+#include "RTClib.h"
 
 // SRAD Imports
 #include "megamind.h"
@@ -42,6 +43,8 @@ Adafruit_LSM6DSO32 LSM;
 Adafruit_BNO055 BNO(55, BNO055_ADDRESS_A, &Wire);
 Adafruit_GPS GPS(&Wire);
 SPIClass SPI2(HSPI);
+TwoWire RTCWire = TwoWire(1);
+RTC_DS1307 RTC;
 File sdData;
 
 // SD Data Header
@@ -114,14 +117,32 @@ void init_spi() {
         }
     }
 
-    // NOTE: temporarily uncommented this for fried module
-    // TODO: update file name with RTC input once configured
-    sdData = SD.open("/newName.csv", FILE_WRITE);
-    if(!sdData) {
-        while(1) {
-            printf("SD FILE FAILED\n");
-        }
+    char rtctime[64];
+    DateTime now = RTC.now();
+    snprintf(
+        rtctime,
+        sizeof(rtctime),
+        "%04d-%02d-%02d-%02d-%02d-%02d",
+        now.year(),
+        now.month(),
+        now.day(),
+        now.hour() - 60,
+        now.minute(),
+        now.second()
+    );
+
+    // Create datalogging file with a unique name
+    char csvfilename[17] = "/FL0.txt";
+    for(uint32_t i = 0; SD.exists(csvfilename); i++){
+        sprintf(csvfilename, "/FL%ld.txt", i);  // Increment filename if it already exists
     }
+
+    sdData = SD.open(csvfilename, FILE_WRITE);
+    if (!sdData) {
+        printf("SD FILE FAILED\n");
+        while (1) {}
+    }
+    sdData.println(rtctime);
     sdData.println(header);
 
     // LORA setup (Thanh's work!)
@@ -136,6 +157,11 @@ void init_spi() {
 
 void init_I2C() {
     Wire.begin(I2C_SDA, I2C_SCL);
+    if(!RTCWire.begin(RTC_SDA, RTC_SCL))
+    {
+        printf("RTC wire failed to init\n");
+        while(1) {}
+    }
 
     // GPS Setup
     GPS.sendCommand(PMTK_API_SET_FIX_CTL_5HZ);
@@ -146,6 +172,18 @@ void init_I2C() {
     // TODO: [NS] - figure out how to set BNO to manual
     BNO.begin();
     BNO.setExtCrystalUse(true);
+
+    // RTC!
+    if(!RTC.begin(&RTCWire))
+    {
+        printf("RTC failed to start!\n");
+        while(1) {}
+    }
+    if (!RTC.isrunning())
+    {
+        printf("RTC not running, time not set!\n");
+        while(1) {}
+    }
 }
 
 // init queues
@@ -167,18 +205,17 @@ void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 void SD_task(void *pvParameter);
 void LORA_task(void *pvParameter);
-void FSM_task(void *pvParameter);
 
 extern "C" void app_main()
 {
     // init Arduino Framework from ESP HAL
     initArduino();
 
-    // init SPI buses
-    init_spi();
-
     // init I^2C bus
     init_I2C();
+
+    // init SPI buses
+    init_spi();
 
     // init GDQ
     init_GDQ();

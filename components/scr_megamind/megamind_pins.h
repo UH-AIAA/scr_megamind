@@ -23,6 +23,10 @@
 #define I2C_SDA 8
 #define I2C_SCL 9
 
+// RTC I2C pins
+#define RTC_SDA 14
+#define RTC_SCL 15
+
 // CS definitions
 #define BMP390_CS 10
 #define ADXL375_CS 5
