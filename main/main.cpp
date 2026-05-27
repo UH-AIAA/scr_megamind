@@ -29,47 +29,11 @@
 
 // SRAD Imports
 #include "megamind.h"
-
-// Sensor SPI init
-#define SPI_SCLK_PIN 12
-#define SPI_MISO_PIN 13
-#define SPI_MOSI_PIN 11
-#define SPI_MAX_TRSZ 4096
-
-// used for hardware prototype that's flipped
-// #define SPI_SCLK_PIN 18
-// #define SPI_MISO_PIN 16
-// #define SPI_MOSI_PIN 17
-
-// #define VSPI_SCLK_PIN 12
-// #define VSPI_MISO_PIN 11
-// #define VSPI_MOSI_PIN 13
-
-// SD+LoRa SPI Init
-#define VSPI_SCLK_PIN 18
-#define VSPI_MISO_PIN 17
-#define VSPI_MOSI_PIN 16
-#define VSPI_MAX_TRSZ 4092
-
-// I^2C Init
-#define I2C_SDA 8
-#define I2C_SCL 9
-
-// CS definitions
-#define BMP390_CS 10
-#define ADXL375_CS 5
-#define LSM6DSO32_CS 4
-#define LORA_CS 7
-#define SD_CS 20
-
-// Lo-Ra Control Pins
-#define LORA_RST 21
-#define LORA_IRQ 19
-#define LORA_FREQ 915E6
+#include "megamind_pins.h"
+#include "megamind_const.h"
 
 // Debug control definitions
-// #define DEBUG
-#define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
+#define DEBUG
 
 // Chip Object Instantiation
 Adafruit_BMP5xx BMP;
@@ -93,6 +57,7 @@ static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
 
 GDQ_t GDQ;
+uint8_t fsmState = 0;
 
 void init_spi() {
     // SPI2.begin(VSPI_SCLK_PIN,
@@ -202,6 +167,7 @@ void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 void SD_task(void *pvParameter);
 void LORA_task(void *pvParameter);
+void FSM_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -225,7 +191,7 @@ extern "C" void app_main()
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
 
     // TODO: [add calibration functions here for LSM] [NS]
-    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, 4096, 10))
+    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("IMU Calibration Failed!\n");
     }
@@ -235,7 +201,7 @@ extern "C" void app_main()
 
 
     // TODO: [JF] call altimeter calibration function here!
-    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 4096, 10))
+    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("Altitude Calibration Failed!\n");
     }
@@ -316,6 +282,16 @@ extern "C" void app_main()
     xTaskCreatePinnedToCore(
         BMP_task,
         "BMP_task", 5000, NULL, 4,
+        NULL,
+        0
+    );
+
+    xTaskCreatePinnedToCore(
+        FSM_task,
+        "FSM_task",
+        5000,
+        NULL,
+        1,
         NULL,
         0
     );
@@ -592,7 +568,6 @@ void SD_task(void *pvParameter)
     static int n = 0;
     static uint32_t flushCounter = 0;
     
-
     GDQMessage_t currentMessage;
 
     // TODO: [NS] make these #defines
@@ -604,6 +579,9 @@ void SD_task(void *pvParameter)
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
+        
+        // for now, run state machine in here:
+        FSM(currentMessage, fsmState);
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
@@ -768,5 +746,14 @@ void LORA_task(void *pvParameter)
                 printf("Time Elapsed LoRa: %lu\n", endTime - startTime);
             #endif
         }   
+    }
+}
+
+void FSM_task(void *pvParameter)
+{
+    bool useLSM = false;
+    while(1)
+    {
+        
     }
 }

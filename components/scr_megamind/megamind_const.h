@@ -1,0 +1,13 @@
+// hardware tunables
+#define LORA_FREQ 915E6
+
+// memory tunables
+#define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
+
+// calibration tunables
+#define NUM_CALIBRATION_SAMPLES 4096
+#define CALIBRATION_DIVERGE_THRESH 10
+
+// state machine tunables
+#define ASCENT_THRESHOLD 40       // m/s^2, roughly 4Gs
+#define REQ_COUNT_STATE_CHANGE 5  // number of valid checks required before a state change is allowed
