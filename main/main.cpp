@@ -68,7 +68,7 @@
 #define LORA_FREQ 915E6
 
 // Debug control definitions
-#define DEBUG
+// #define DEBUG
 #define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
 
 // Chip Object Instantiation
@@ -95,6 +95,19 @@ static SemaphoreHandle_t sd_lora_spi_mutex;
 GDQ_t GDQ;
 
 void init_spi() {
+    // SPI2.begin(VSPI_SCLK_PIN,
+    //            VSPI_MISO_PIN,
+    //            VSPI_MOSI_PIN,
+    //            -1);
+
+    // printf("Trying SD.begin...\n");
+
+    // bool ok = SD.begin(SD_CS, SPI2, 20000000);
+
+    // printf("SD.begin returned %d\n", ok);
+
+    // while(1);
+
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
     bool spiStatus = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
@@ -129,22 +142,22 @@ void init_spi() {
         printf("SPI2 failed\n");
         }
     }
-    // if(!SD.begin(SD_CS, SPI2, 1E6))   // TODO: [NS] make this a #define
-    // {
-    //     printf("SD never began!\n");
-    //     while (1) {
-    //     }
-    // }
+    if(!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
+    {
+        printf("SD never began!\n");
+        while (1) {
+        }
+    }
 
     // NOTE: temporarily uncommented this for fried module
     // TODO: update file name with RTC input once configured
-    // sdData = SD.open("/newName.csv", FILE_WRITE);
-    // if(!sdData) {
-    //     while(1) {
-    //         printf("SD FILE FAILED\n");
-    //     }
-    // }
-    // sdData.println(header);
+    sdData = SD.open("/newName.csv", FILE_WRITE);
+    if(!sdData) {
+        while(1) {
+            printf("SD FILE FAILED\n");
+        }
+    }
+    sdData.println(header);
 
     // LORA setup (Thanh's work!)
     LoRa.setSPI(SPI2);
