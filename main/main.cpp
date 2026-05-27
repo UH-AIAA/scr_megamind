@@ -273,15 +273,15 @@ extern "C" void app_main()
     );
 
     // NOTE: temporarily commented out while waiting for new SD chip
-    // xTaskCreatePinnedToCore(
-    //     SD_task,
-    //     "SD_task",
-    //     8000,
-    //     NULL,
-    //     4,
-    //     NULL,
-    //     1
-    // );
+    xTaskCreatePinnedToCore(
+        SD_task,
+        "SD_task",
+        8000,
+        NULL,
+        4,
+        NULL,
+        1
+    );
 
     xTaskCreatePinnedToCore(
         ADXL_task,
@@ -589,7 +589,7 @@ void SD_task(void *pvParameter)
     char msgBuf[4096];
     size_t index = 0;
     size_t remaining;
-    static int n;
+    static int n = 0;
     static uint32_t flushCounter = 0;
     
 
