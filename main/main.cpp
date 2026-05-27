@@ -29,47 +29,11 @@
 
 // SRAD Imports
 #include "megamind.h"
-
-// Sensor SPI init
-#define SPI_SCLK_PIN 12
-#define SPI_MISO_PIN 13
-#define SPI_MOSI_PIN 11
-#define SPI_MAX_TRSZ 4096
-
-// used for hardware prototype that's flipped
-// #define SPI_SCLK_PIN 18
-// #define SPI_MISO_PIN 16
-// #define SPI_MOSI_PIN 17
-
-// #define VSPI_SCLK_PIN 12
-// #define VSPI_MISO_PIN 11
-// #define VSPI_MOSI_PIN 13
-
-// SD+LoRa SPI Init
-#define VSPI_SCLK_PIN 18
-#define VSPI_MISO_PIN 17
-#define VSPI_MOSI_PIN 16
-#define VSPI_MAX_TRSZ 4092
-
-// I^2C Init
-#define I2C_SDA 8
-#define I2C_SCL 9
-
-// CS definitions
-#define BMP390_CS 10
-#define ADXL375_CS 5
-#define LSM6DSO32_CS 4
-#define LORA_CS 7
-#define SD_CS 20
-
-// Lo-Ra Control Pins
-#define LORA_RST 21
-#define LORA_IRQ 19
-#define LORA_FREQ 915E6
+#include "megamind_pins.h"
+#include "megamind_const.h"
 
 // Debug control definitions
-#define DEBUG
-#define MAX_SENSOR_QUEUE_SIZE (200)  // napkin math says this is abt 1s of data?
+// #define DEBUG
 
 // Chip Object Instantiation
 Adafruit_BMP5xx BMP;
@@ -93,8 +57,22 @@ static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
 
 GDQ_t GDQ;
+uint8_t fsmState = 0;
 
 void init_spi() {
+    // SPI2.begin(VSPI_SCLK_PIN,
+    //            VSPI_MISO_PIN,
+    //            VSPI_MOSI_PIN,
+    //            -1);
+
+    // printf("Trying SD.begin...\n");
+
+    // bool ok = SD.begin(SD_CS, SPI2, 20000000);
+
+    // printf("SD.begin returned %d\n", ok);
+
+    // while(1);
+
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
     bool spiStatus = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
@@ -129,22 +107,22 @@ void init_spi() {
         printf("SPI2 failed\n");
         }
     }
-    // if(!SD.begin(SD_CS, SPI2, 1E6))   // TODO: [NS] make this a #define
-    // {
-    //     printf("SD never began!\n");
-    //     while (1) {
-    //     }
-    // }
+    if(!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
+    {
+        printf("SD never began!\n");
+        while (1) {
+        }
+    }
 
     // NOTE: temporarily uncommented this for fried module
     // TODO: update file name with RTC input once configured
-    // sdData = SD.open("/newName.csv", FILE_WRITE);
-    // if(!sdData) {
-    //     while(1) {
-    //         printf("SD FILE FAILED\n");
-    //     }
-    // }
-    // sdData.println(header);
+    sdData = SD.open("/newName.csv", FILE_WRITE);
+    if(!sdData) {
+        while(1) {
+            printf("SD FILE FAILED\n");
+        }
+    }
+    sdData.println(header);
 
     // LORA setup (Thanh's work!)
     LoRa.setSPI(SPI2);
@@ -189,6 +167,7 @@ void GPS_task(void *pvParameter);
 void BMP_task(void *pvParameter);
 void SD_task(void *pvParameter);
 void LORA_task(void *pvParameter);
+void FSM_task(void *pvParameter);
 
 extern "C" void app_main()
 {
@@ -212,7 +191,7 @@ extern "C" void app_main()
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
 
     // TODO: [add calibration functions here for LSM] [NS]
-    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, 4096, 10))
+    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("IMU Calibration Failed!\n");
     }
@@ -222,7 +201,7 @@ extern "C" void app_main()
 
 
     // TODO: [JF] call altimeter calibration function here!
-    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, 4096, 10))
+    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("Altitude Calibration Failed!\n");
     }
@@ -260,15 +239,15 @@ extern "C" void app_main()
     );
 
     // NOTE: temporarily commented out while waiting for new SD chip
-    // xTaskCreatePinnedToCore(
-    //     SD_task,
-    //     "SD_task",
-    //     8000,
-    //     NULL,
-    //     4,
-    //     NULL,
-    //     1
-    // );
+    xTaskCreatePinnedToCore(
+        SD_task,
+        "SD_task",
+        8000,
+        NULL,
+        4,
+        NULL,
+        1
+    );
 
     xTaskCreatePinnedToCore(
         ADXL_task,
@@ -576,10 +555,9 @@ void SD_task(void *pvParameter)
     char msgBuf[4096];
     size_t index = 0;
     size_t remaining;
-    static int n;
+    static int n = 0;
     static uint32_t flushCounter = 0;
     
-
     GDQMessage_t currentMessage;
 
     // TODO: [NS] make these #defines
@@ -591,6 +569,8 @@ void SD_task(void *pvParameter)
 
         // block task until queue has data
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
+        
+        // for now, run state machine in here:
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
