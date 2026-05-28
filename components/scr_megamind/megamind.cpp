@@ -88,9 +88,147 @@ bool ReadBMP(Adafruit_BMP5xx *BMP, GDQMessage_t *outputMsg, float* altBias)
         return false;
     }
 
+    // variable init
+    float alt = 0;
+    static float filteredAlt = 0;
+
     outputMsg->BMPMessage.temp = BMP->temperature;
     outputMsg->BMPMessage.pressure = BMP->pressure;
-    outputMsg->BMPMessage.altitude = BMP->readAltitude(1013.25f) - (*altBias);
+
+    // low pass filter altitude, update raw and filtered
+    alt = BMP->readAltitude(1013.25f) - (*altBias);
+    HWK_FILT_lowPass(alt, &filteredAlt, BMP_LOWPASS_ALPHA);
+    outputMsg->BMPMessage.altitude = alt;
+    outputMsg->BMPMessage.filteredAltitude = filteredAlt;
+
+    return true;
+}
+
+bool updateSDBuffer(GDQMessage_t& currentMessage,
+                    uint8_t* fsmState,
+                    char msgBuf[],
+                    size_t* index,
+                    size_t bufSize)
+{
+    size_t remaining = bufSize - *index;
+
+    int written = 0;
+
+    if(fsmState != NULL)
+    {
+        written = snprintf(
+            msgBuf + *index,
+            remaining,
+            "%i,%i\n",
+            5,
+            *fsmState
+        );
+    }
+    else
+    {
+        switch(currentMessage.sensor)
+        {
+            case SENSOR_GPS:
+                written = snprintf(
+                    msgBuf + *index,
+                    remaining,
+                    "%i,%llu,%i,%f,%f,%c,%c,%f\n",
+                    SENSOR_GPS,
+                    currentMessage.GPSMessage.time,
+                    currentMessage.GPSMessage.satellites,
+                    currentMessage.GPSMessage.latitude,
+                    currentMessage.GPSMessage.longitude,
+                    currentMessage.GPSMessage.lat,
+                    currentMessage.GPSMessage.lon,
+                    currentMessage.GPSMessage.altitude
+                );
+                break;
+
+            case SENSOR_ADXL:
+                written = snprintf(
+                    msgBuf + *index,
+                    remaining,
+                    "%i,%llu,%f,%f,%f\n",
+                    SENSOR_ADXL,
+                    currentMessage.ADXLMessage.time,
+                    currentMessage.ADXLMessage.acceleration[0],
+                    currentMessage.ADXLMessage.acceleration[1],
+                    currentMessage.ADXLMessage.acceleration[2]
+                );
+                break;
+
+            case SENSOR_BNO:
+                written = snprintf(
+                    msgBuf + *index,
+                    remaining,
+                    "%i,%llu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
+                    SENSOR_BNO,
+                    currentMessage.BNOMessage.uptime,
+                    currentMessage.BNOMessage.quaternion[0],
+                    currentMessage.BNOMessage.quaternion[1],
+                    currentMessage.BNOMessage.quaternion[2],
+                    currentMessage.BNOMessage.quaternion[3],
+                    currentMessage.BNOMessage.acceleration[0],
+                    currentMessage.BNOMessage.acceleration[1],
+                    currentMessage.BNOMessage.acceleration[2],
+                    currentMessage.BNOMessage.euler_orientation[0],
+                    currentMessage.BNOMessage.euler_orientation[1],
+                    currentMessage.BNOMessage.euler_orientation[2],
+                    currentMessage.BNOMessage.magnetometer[0],
+                    currentMessage.BNOMessage.magnetometer[1],
+                    currentMessage.BNOMessage.magnetometer[2]
+                );
+                break;
+
+            case SENSOR_LSM:
+                written = snprintf(
+                    msgBuf + *index,
+                    remaining,
+                    "%i,%llu,%f,%f,%f,%f,%f,%f\n",
+                    SENSOR_LSM,
+                    currentMessage.LSMMessage.time,
+                    currentMessage.LSMMessage.acceleration[0],
+                    currentMessage.LSMMessage.acceleration[1],
+                    currentMessage.LSMMessage.acceleration[2],
+                    currentMessage.LSMMessage.gyro[0],
+                    currentMessage.LSMMessage.gyro[1],
+                    currentMessage.LSMMessage.gyro[2]
+                );
+                break;
+
+            case SENSOR_BMP:
+                written = snprintf(
+                    msgBuf + *index,
+                    remaining,
+                    "%i,%llu,%f,%f,%f,%f\n",
+                    SENSOR_BMP,
+                    currentMessage.BMPMessage.time,
+                    currentMessage.BMPMessage.temp,
+                    currentMessage.BMPMessage.pressure,
+                    currentMessage.BMPMessage.altitude,
+                    currentMessage.BMPMessage.filteredAltitude
+                );
+                break;
+
+            default:
+                return true;
+        }
+    }
+
+    // snprintf error
+    if(written < 0)
+    {
+        return false;
+    }
+
+    // not enough room in buffer
+    if((size_t)written >= remaining)
+    {
+        return false;
+    }
+
+    // advance write index
+    *index += written;
 
     return true;
 }
@@ -228,7 +366,18 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
     return true;
 }
 
-bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState)
+int HWK_FILT_lowPass(float raw, float* filtered, const float alpha)
+{
+    // update lowpass IIR in place
+    *filtered = alpha * raw + (1 - alpha) * (*filtered);
+
+    // success
+    return 0;
+}
+
+
+// returns true if it updates state
+bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
 {
     // init
     bool useLSM = false;
@@ -288,6 +437,7 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState)
                 if(IdleToAscent(accelMagLSM, eventCounter))
                 {
                     fsmState = FSM_ASCENT;
+                    return true;
                 }
             }
 
@@ -298,30 +448,49 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState)
                 if(IdleToAscent(accelMagADXL, eventCounter))
                 {
                     fsmState = FSM_ASCENT;
+                    return true;
                 }
             }
+            break;
                 
         case FSM_ASCENT:
-            if(AscentToDescent()) {
-                fsmState = FSM_DESCENT;
+            // is this a sensor we care about?
+            if (currMsg.sensor != SENSOR_BMP)
+            {
+                break;
             }
             
-        case FSM_DESCENT:
-            if(DescentToLanded()) {
-                fsmState = FSM_LANDED;
+            // now run transition function
+            if(AscentToDescent(currMsg.BMPMessage.filteredAltitude, currMsg.BMPMessage.time, eventCounter)) {
+                fsmState = FSM_DESCENT;
+                apogeeEstimate = currMsg.BMPMessage.filteredAltitude;
+                return true;
             }
+
+            break;
+            
+        case FSM_DESCENT:
+            if(currMsg.sensor != SENSOR_BMP)
+            {
+                break;
+            }
+            if(DescentToLanded(currMsg.BMPMessage.filteredAltitude, eventCounter)) {
+                fsmState = FSM_LANDED;
+                return true;
+            }
+            break;
             
 
         // if we're landed, stop running FSM
         case FSM_LANDED:
-            return false;
+            return true;
     }
 
-    return true;
+    return false;
 }
 
 bool IdleToAscent(float currentAccelMag, uint8_t& counter)
-{   
+{
     // if acceleration is above launch threshold, 
     if (currentAccelMag >= ASCENT_THRESHOLD)
     {
@@ -347,12 +516,114 @@ bool IdleToAscent(float currentAccelMag, uint8_t& counter)
     return false;
 }
 
-bool AscentToDescent()
+// more hawkeye previews
+static void HWK_UTIL_updateRingBuffer(float buffer[], const uint8_t size, uint8_t* i, float newValue)
 {
+    // update value
+    buffer[*i] = newValue;
+    *i = (*i + 1) % size;   // modulus means index will wrap around when buffer is full
+
+    return;
+}
+
+static void HWK_UTIL_unwrapRingBuffer(float inputBuffer[], float outputBuffer[], const uint8_t size, const uint8_t head)
+{
+    for (int i = 0; i < size; i++)
+    {
+        outputBuffer[i] = inputBuffer[(head + i) % size];
+    }
+
+    return;
+}
+
+// update, added it anyways, but use this later on
+/**  not adding an unwrap function, use the following pattern:
+ * for(uint8_t i = head; i < size; i++)
+ * {
+ *     process(ring[i]);
+ * }
+ *
+ * for(uint8_t i = 0; i < head; i++)
+ * {
+ *     process(ring[i]);
+ * }
+**/
+
+bool AscentToDescent(float altUpdate, uint64_t timeUpdate, uint8_t& counter)
+{
+    // init static altitude array
+    static const uint8_t bufSize = REQ_COUNT_STATE_CHANGE;
+    static float altitudes[bufSize];
+    static float times[bufSize];
+    static uint8_t altI;
+    static uint8_t timeI;
+
+    // add altitude/corresponding time to ring buffer
+    HWK_UTIL_updateRingBuffer(altitudes, bufSize, &altI, altUpdate);
+    HWK_UTIL_updateRingBuffer(times, bufSize, &timeI, (float)timeUpdate);
+
+    uint8_t curr = (altI + bufSize - 1) % bufSize;
+    uint8_t prev = (curr + bufSize - 1) % bufSize;
+
+    // if altitude is increasing, reset counter
+    if(altitudes[curr] > altitudes[prev])
+    {
+        counter = 0;
+        return false;
+    }
+
+    // if altitude is decreasing, compute velocity
+    // dt in microseconds, vel in seconds
+    uint64_t dt = times[curr] - times[prev];
+    float vel = ((altitudes[curr] - altitudes[prev]) / dt) / 1E6;
+
+    // if velocity is negative enough, increase counter
+    // if not, that must just be estimation noise since we've
+    // already checked for a downward altitude trend
+    if(vel < -0.5)
+    {
+        counter++;
+    }
+
+    // have we had enough successful samples?
+    if(counter < REQ_COUNT_STATE_CHANGE)
+    {
+        return false;
+    }
+
+    // reset counter for next check
+    counter = 0;
     return true;
 }
 
-bool DescentToLanded()
+// use BMP readings and Welford to see if we're on the ground
+bool DescentToLanded(float altUpdate, uint8_t& counter)
 {
+    static Welford_state altState;
+
+    // update running average
+    Welford_Calibration(&altState, altUpdate);
+
+    // check variance:
+    if (altState.variance < LANDING_DIVERGENCE_THRESH)
+    {
+        counter++;
+    }
+    else
+    {
+        // reset state and counter
+        counter = 0;
+        memset(&altState, 0, sizeof(Welford_state));
+        return false;
+    }
+
+    // have we ran long enough?
+    if (counter < 4 * REQ_COUNT_STATE_CHANGE)
+    {
+        return false;
+    }
+
+    // reset counter and return true
+    counter = 0;
     return true;
 }

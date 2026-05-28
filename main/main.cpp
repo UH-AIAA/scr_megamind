@@ -61,6 +61,7 @@ static SemaphoreHandle_t sd_lora_spi_mutex;
 
 GDQ_t GDQ;
 uint8_t fsmState = 0;
+float apogeeEstimate = 0;
 
 void init_spi() {
     // SPI2.begin(VSPI_SCLK_PIN,
@@ -91,7 +92,7 @@ void init_spi() {
     BMP.setPressureOversampling(BMP5XX_OVERSAMPLING_1X);
     BMP.setOutputDataRate(BMP5XX_ODR_50_HZ);
     BMP.setPowerMode(BMP5XX_POWERMODE_NORMAL);
-    BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_3);
+    BMP.setIIRFilterCoeff(BMP5XX_IIR_FILTER_COEFF_1);
 
     LSM.setAccelDataRate(LSM6DS_RATE_104_HZ); //gives accelerometer data every 9.6ms
 
@@ -574,6 +575,7 @@ void BMP_task(void *pvParameter) {
                     printf("BMP Temp: %f\n", currentMessage.BMPMessage.temp);
                     printf("BMP Press: %f\n", currentMessage.BMPMessage.pressure);
                     printf("BMP Alt: %f\n", currentMessage.BMPMessage.altitude);
+                    printf("BMP Filtered Alt: %f\n", currentMessage.BMPMessage.filteredAltitude);
                     printf("Uptime [ms/ticks]: %lu\n\n", upTime);
                     printf("Elapsed Time: %li\n\n\n", endTime - startTime);
                 #endif
@@ -608,66 +610,41 @@ void SD_task(void *pvParameter)
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
         
         // for now, run state machine in here:
+        if(FSM(currentMessage, fsmState, apogeeEstimate))
+        {
+            // state has been updated, handle accordingly
+            // if buffer full, write out
+            if(!updateSDBuffer(currentMessage, &fsmState, msgBuf, &index, sizeof(msgBuf))) {
+                xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
+
+                sdData.print(msgBuf);
+                flushCounter += index;
+                if(flushCounter >= 32E3) {
+                    sdData.flush();
+                    flushCounter = 0;
+                }
+                #ifdef DEBUG
+                    uint32_t endTime = esp_timer_get_time();
+                    printf("Uptime: %lu\n", uptime);
+                    printf("ELAPSED TIME: %lu\n", endTime - startTime);
+                    printf("Used Bytes: %lu\n", (unsigned long)index);
+                    printf("Queue Length: %lu\n\n", (unsigned long)uxQueueMessagesWaiting(GDQ.SensorQueue));
+                #endif
+
+                xSemaphoreGive(sd_lora_spi_mutex);
+
+                // reset buffer and try again
+                index = 0;
+                memset(msgBuf, 0, sizeof(msgBuf));
+                updateSDBuffer(currentMessage, &fsmState, msgBuf, &index, sizeof(msgBuf));
+            } 
+           
+        }
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
-        remaining = sizeof(msgBuf) - index;
-
-        switch(currentMessage.sensor) {
-            case SENSOR_GPS:
-                n += snprintf(msgBuf + index, remaining,
-                     "%i,%llu,%i,%f,%f,%c,%c,%f\n",
-                     SENSOR_GPS,
-                     currentMessage.GPSMessage.time,
-                     currentMessage.GPSMessage.satellites,
-                     currentMessage.GPSMessage.latitude, currentMessage.GPSMessage.longitude,
-                     currentMessage.GPSMessage.lat, currentMessage.GPSMessage.lon,
-                     currentMessage.GPSMessage.altitude
-                );
-                break;
-            case SENSOR_ADXL:
-                n += snprintf(msgBuf + index, remaining,
-                     "%i,%llu,%f,%f,%f\n",
-                     SENSOR_ADXL,
-                     currentMessage.ADXLMessage.time,
-                     currentMessage.ADXLMessage.acceleration[0], currentMessage.ADXLMessage.acceleration[1], currentMessage.ADXLMessage.acceleration[2]
-                );
-                break;
-            case SENSOR_BNO:
-                n += snprintf(msgBuf + index, remaining,
-                     "%i,%llu,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",
-                     SENSOR_BNO,
-                     currentMessage.BNOMessage.uptime,
-                     currentMessage.BNOMessage.quaternion[0], currentMessage.BNOMessage.quaternion[1], currentMessage.BNOMessage.quaternion[2], currentMessage.BNOMessage.quaternion[3],
-                     currentMessage.BNOMessage.acceleration[0], currentMessage.BNOMessage.acceleration[1], currentMessage.BNOMessage.acceleration[2],
-                     currentMessage.BNOMessage.euler_orientation[0], currentMessage.BNOMessage.euler_orientation[1], currentMessage.BNOMessage.euler_orientation[2],
-                     currentMessage.BNOMessage.magnetometer[0], currentMessage.BNOMessage.magnetometer[1], currentMessage.BNOMessage.magnetometer[2]
-                );
-                break;
-
-            case SENSOR_LSM:
-                n += snprintf(msgBuf + index, remaining,
-                     "%i,%llu,%f,%f,%f,%f,%f,%f\n",
-                     SENSOR_LSM,
-                     currentMessage.LSMMessage.time,
-                     currentMessage.LSMMessage.acceleration[0], currentMessage.LSMMessage.acceleration[1], currentMessage.LSMMessage.acceleration[2],
-                     currentMessage.LSMMessage.gyro[0], currentMessage.LSMMessage.gyro[1], currentMessage.LSMMessage.gyro[2]
-                );
-                break;
-            case SENSOR_BMP:
-                n += snprintf(msgBuf + index, remaining,
-                     "%i,%llu,%f,%f,%f\n",
-                     SENSOR_BMP,
-                     currentMessage.BMPMessage.time,
-                     currentMessage.BMPMessage.temp,
-                     currentMessage.BMPMessage.pressure,
-                     currentMessage.BMPMessage.altitude
-                );
-                break;
-        }
-
         // if buffer full, write out
-        if(n >= remaining) {
+        if(!updateSDBuffer(currentMessage, NULL, msgBuf, &index, sizeof(msgBuf))) {
             xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
 
             sdData.print(msgBuf);
@@ -688,12 +665,10 @@ void SD_task(void *pvParameter)
 
             // reset buffer
             index = 0;
-            n = 0;
             memset(msgBuf, 0, sizeof(msgBuf));
+            updateSDBuffer(currentMessage, NULL, msgBuf, &index, sizeof(msgBuf));
             vTaskDelay(pdMS_TO_TICKS(20));
-        } else {
-            index += n;
-        }
+        } 
     }
 }
 
@@ -754,8 +729,8 @@ void LORA_task(void *pvParameter)
         currentMessage.GPS_alt = GDQ.LatestGPSMsg.altitude;
 
         // flight state/apogee TODO: [NS] update with state machine
-        currentMessage.apogeeEstimate = 0;
-        currentMessage.flightState = 0;
+        currentMessage.apogeeEstimate = apogeeEstimate;
+        currentMessage.flightState = fsmState;
 
         if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
