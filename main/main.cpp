@@ -63,7 +63,18 @@ GDQ_t GDQ;
 uint8_t fsmState = 0;
 float apogeeEstimate = 0;
 
-void init_spi() {
+inline spinlock()
+{
+    // ensure side effect so compiler does not optimize away the infinite loop
+    volatile int i{};
+    while (true)
+    {
+        i++;
+    }
+}
+
+void init_spi()
+{
     // SPI2.begin(VSPI_SCLK_PIN,
     //            VSPI_MISO_PIN,
     //            VSPI_MOSI_PIN,
@@ -75,7 +86,7 @@ void init_spi() {
 
     // printf("SD.begin returned %d\n", ok);
 
-    // while(1);
+    // while (true);
 
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
@@ -106,16 +117,16 @@ void init_spi() {
     ADXL.setRange(ADXL343_RANGE_16_G);
     
     // SD setup
-    if(!SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1)) {
-        while(1){
+    if (!SPI2.begin(VSPI_SCLK_PIN, VSPI_MISO_PIN, VSPI_MOSI_PIN, -1))
+    {
         printf("SPI2 failed\n");
-        }
+        spinlock();
     }
-    if(!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
+
+    if (!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
     {
         printf("SD never began!\n");
-        while (1) {
-        }
+        spinlock();
     }
 
     char rtctime[64];
@@ -134,14 +145,16 @@ void init_spi() {
 
     // Create datalogging file with a unique name
     char csvfilename[17] = "/FL0.txt";
-    for(uint32_t i = 0; SD.exists(csvfilename); i++){
+    for(uint32_t i = 0; SD.exists(csvfilename); i++)
+    {
         sprintf(csvfilename, "/FL%ld.txt", i);  // Increment filename if it already exists
     }
 
     sdData = SD.open(csvfilename, FILE_WRITE);
-    if (!sdData) {
+    if (!sdData)
+    {
         printf("SD FILE FAILED\n");
-        while (1) {}
+        spinlock();
     }
     sdData.println(rtctime);
     sdData.println(header);
@@ -149,19 +162,20 @@ void init_spi() {
     // LORA setup (Thanh's work!)
     LoRa.setSPI(SPI2);
     LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    if(!LoRa.begin(LORA_FREQ))
+    if (!LoRa.begin(LORA_FREQ))
     {
         printf("LoRa.begin failed!\n");
-        while (1) {};
+        spinlock();
     }
 }
 
-void init_I2C() {
+void init_I2C()
+{
     Wire.begin(I2C_SDA, I2C_SCL);
-    if(!RTCWire.begin(RTC_SDA, RTC_SCL))
+    if (!RTCWire.begin(RTC_SDA, RTC_SCL))
     {
         printf("RTC wire failed to init\n");
-        while(1) {}
+        spinlock();
     }
 
     // GPS Setup
@@ -175,20 +189,22 @@ void init_I2C() {
     BNO.setExtCrystalUse(true);
 
     // RTC!
-    if(!RTC.begin(&RTCWire))
+    if (!RTC.begin(&RTCWire))
     {
         printf("RTC failed to start!\n");
-        while(1) {}
+        spinlock();
     }
+
     if (!RTC.isrunning())
     {
         printf("RTC not running, time not set!\n");
-        while(1) {}
+        spinlock();
     }
 }
 
 // init queues
-void init_GDQ() {
+void init_GDQ()
+{
     GDQ.SensorQueue = xQueueCreate(MAX_SENSOR_QUEUE_SIZE * 4, sizeof(GDQMessage_t));
     
     GDQ.LatestGPSMsg = {0};
@@ -229,7 +245,7 @@ extern "C" void app_main()
     sd_lora_spi_mutex = xSemaphoreCreateMutex();  
 
     // TODO: [add calibration functions here for LSM] [NS]
-    while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
+    while (!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("IMU Calibration Failed!\n");
     }
@@ -239,93 +255,185 @@ extern "C" void app_main()
 
 
     // TODO: [JF] call altimeter calibration function here!
-    while(!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
+    while (!calibrateAltimeter(&BMP, &BMP_ALT_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
     {
         printf("Altitude Calibration Failed!\n");
     }
     printf("alt bias: %f\n\n", BMP_ALT_BIAS);
 
-    // sample task for your convenience
-/*    xTaskCreate(
-        MegaMind_LAUNCH,    // [in] function pointer
-        "MegaMind_LAUNCH",  // [in] debug name, leave same as function name plz
-        50000,              // [in] function stack frame size (bytes),
-        NULL,               // [in] parameters to pass
-        2,                  // [in] task prioirity
-        NULL                // [in] task handle (leave null)
-    );
-*/
-    // create tasks!
-    xTaskCreatePinnedToCore(
-        LORA_task,
-        "LORA_task",
-        10000,
-        NULL,
-        5,
-        &LORA_handle,
-        1
-    );
+    // https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32/api-reference/system/freertos.html
+    // BaseType_t xTaskCreatePinnedToCore(
+    //       TaskFunction_t pvTaskCode
+    //     , const char *const pcName
+    //     , const uint32_t usStackDepth
+    //     , void *const pvParameters
+    //     , const UBaseType_t uxPriority
+    //     , TaskHandle_t *const pvCreatedTask
+    //     , const BaseType_t xCoreID
+    // );
 
-    xTaskCreatePinnedToCore(
-        GPS_task,
-        "GPS Task",
-        8000,
-        NULL,
-        3,
-        NULL,
-        1
-    );
+    // sample task for your convenience
+    /*    xTaskCreate(
+            MegaMind_LAUNCH,    // [in] function pointer
+            "MegaMind_LAUNCH",  // [in] debug name, leave same as function name plz
+            50000,              // [in] function stack frame size (bytes),
+            NULL,               // [in] parameters to pass
+            2,                  // [in] task prioirity
+            NULL                // [in] task handle (leave null)
+        );
+    */
+
+    /* LORA Task */
+    {
+        TaskFunction_t pvTaskCode{&LORA_task};
+        const char* const pcName{"LORA_task"};
+        const uint32_t usStackDepth{10'000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{5};
+        TTaskHandle_t* const pvCreatedTask{&LORA_handle};
+        const BaseType_t xCoreID{1};
+        
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
+
+    /* GPS Task */
+    {
+        TaskFunction_t pvTaskCode{GPS_task};
+        const char* const pcName{"GPS Task"};
+        const uint32_t usStackDepth{8000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{3};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{1};
+
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
 
     // NOTE: temporarily commented out while waiting for new SD chip
-    xTaskCreatePinnedToCore(
-        SD_task,
-        "SD_task",
-        8000,
-        NULL,
-        4,
-        NULL,
-        1
-    );
+    /* SD Task */
+    {
+        TaskFunction_t pvTaskCode{SD_task};
+        const char* const pcName{"SD_task"};
+        const uint32_t usStackDepth{8000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{4};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{1};
 
-    xTaskCreatePinnedToCore(
-        ADXL_task,
-        "ADXL_task",
-        5000,
-        NULL,
-        5,
-        NULL,
-        0
-    );
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
 
-    xTaskCreatePinnedToCore(
-        BNO_task,
-        "BNO_task",
-        5000,
-        NULL,
-        2,
-        NULL,
-        0
-    );
+    /* ADXL Task */
+    {
+        TaskFunction_t pvTaskCode{&ADXL_task};
+        const char* const pcName{"ADXL_task"};
+        const uint32_t usStackDepth{5000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{5};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{0};
 
-    xTaskCreatePinnedToCore(
-        LSM_task,
-        "LSM_task",
-        5000,
-        NULL,
-        3,
-        NULL,
-        0
-    );
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
 
-    xTaskCreatePinnedToCore(
-        BMP_task,
-        "BMP_task", 5000, NULL, 4,
-        NULL,
-        0
-    );
+    /* BNO Task */
+    {
+        TaskFunction_t pvTaskCode{&BNO_task};
+        const char* const pcName{"BNO_task"};
+        const uint32_t usStackDepth{5000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{2};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{0};
+
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
+
+    /* LSM Task */
+    {
+        TaskFunction_t pvTaskCode{&LSM_task};
+        const char* const pcName{"LSM_task"};
+        const uint32_t usStackDepth{5000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{3};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{0};
+
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
+
+    /* BMP Task */
+    {
+        TaskFunction_t pvTaskCode{&BMP_task};
+        const char* const pcName{"BMP_task"};
+        const uint32_t usStackDepth{ 5000};
+        void* const pvParameters{nullptr};
+        const UBaseType_t uxPriority{4};
+        TTaskHandle_t* const pvCreatedTask{nullptr};
+        const BaseType_t xCoreID{0};
+
+        xTaskCreatePinnedToCore(
+            pvTaskCode,
+            pcName,
+            usStackDepth,
+            pvParameters,
+            uxPriority,
+            pvCreatedTask,
+            xCoreID
+        );
+    }
 }
 
-void GPS_task(void *pvParameter) {
+void GPS_task(void *pvParameter)
+{
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_GPS,
     };
@@ -333,22 +441,28 @@ void GPS_task(void *pvParameter) {
     const TickType_t period = pdMS_TO_TICKS(200);
     TickType_t lastWake = xTaskGetTickCount();
 
-    while(true){
+    while (true)
+    {
         uint32_t startms = esp_timer_get_time();
         xTaskNotifyGive(LORA_handle);
         uint32_t timeout = startms + 200000;
 
-        while (esp_timer_get_time() < timeout) {
-            while (GPS.available() && esp_timer_get_time() < timeout) {
+        while (esp_timer_get_time() < timeout)
+        {
+            while (GPS.available() && esp_timer_get_time() < timeout)
+            {
                 GPS.read();
                 //choke point is from GPS.read();
                 //can only read 1 byte at a time
-                if (GPS.newNMEAreceived()) {
-                    if (!GPS.parse(GPS.lastNMEA())) {
+                if (GPS.newNMEAreceived())
+                {
+                    if (!GPS.parse(GPS.lastNMEA()))
+                    {   
                         continue;
                     }
 
-                    if (GPS.fix && GPS.satellites > 0) {
+                    if (GPS.fix && GPS.satellites > 0)
+                    {
                         printf("Satellites: %i\n", GPS.satellites);
                         printf("Latitude: %f, %c\n", GPS.latitude,GPS.lat);
                         printf("Longitude: %f, %c\n", GPS.longitude, GPS.lon);
@@ -391,29 +505,35 @@ void GPS_task(void *pvParameter) {
     }
 }
 
-
-void ADXL_task(void *pvParameter) {
+void ADXL_task(void *pvParameter)
+{
     // variable declarations
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_ADXL,
     };
-    uint32_t startTime, endTime;
-    TickType_t uptime;
+
+    uint32_t startTime{}, endTime{};
+    TickType_t uptime{};
+
     static bool adxl_up;
-    while(1) {
+
+    while (true)
+    {
         // gather what time the function started
         startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
         // attempt to take mutex, code inside blocked until mutex is released
-        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
             // if success,
             adxl_up = ReadADXL(&ADXL, &currentMessage, ADXL_ACCEL_BIAS);
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }
 
-        if (adxl_up) {
+        if (adxl_up)
+        {
             currentMessage.ADXLMessage.time = startTime;
             // write data to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
@@ -438,7 +558,8 @@ void ADXL_task(void *pvParameter) {
 
 // TODO: [NS/JL] figure out exactly raw data we have access
 //               to and what it means
-void BNO_task(void *pvParameter) {
+void BNO_task(void *pvParameter)
+{
     // variable declaration
     uint32_t startTime, endTime;
     TickType_t uptime;
@@ -446,7 +567,8 @@ void BNO_task(void *pvParameter) {
         .sensor = SENSOR_BNO,
     };
 
-    while (1) {
+    while (true)
+    {
         // TODO: [NS/JL] assess if we actually need to gather all this data from the sensor
         // if we can't get BNO data, end task early and schedule again after 1 tick
 
@@ -454,7 +576,7 @@ void BNO_task(void *pvParameter) {
         startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
-        if(ReadBNO(&BNO, &currentMessage))
+        if (ReadBNO(&BNO, &currentMessage))
         {
             currentMessage.BNOMessage.uptime = startTime;
 
@@ -488,7 +610,8 @@ void BNO_task(void *pvParameter) {
 }
 
 
-void LSM_task(void *pvParameter) {
+void LSM_task(void *pvParameter)
+{
 
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_LSM,
@@ -498,19 +621,21 @@ void LSM_task(void *pvParameter) {
     uint32_t startTime;
     uint32_t endTime;
 
-    while (1) {
+    while (true)
+    {
         uptime = xTaskGetTickCount(); 
         startTime = esp_timer_get_time(); 
 
         // attempts to retrieve mutex
-        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
+        if (xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
             // remove comment marks to include temperate
             //currentMessage.temp = temp;
-            if(ReadLSM(&LSM, &currentMessage, LSM_ACCEL_BIAS, LSM_GYRO_BIAS)) {
+            if (ReadLSM(&LSM, &currentMessage, LSM_ACCEL_BIAS, LSM_GYRO_BIAS))
+            {
                 currentMessage.LSMMessage.time = startTime;
                 // writes data to queue
-                if(xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
+                if (xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0) != pdTRUE)
                 {
                     // NOTE: temporarily commented out for work on unstable branch
                     // printf("LSM Lost Packet!\n");
@@ -543,19 +668,23 @@ void LSM_task(void *pvParameter) {
 }
 
 
-void BMP_task(void *pvParameter) {
+void BMP_task(void *pvParameter)
+{
     static bool bmp_up;
     static float bmp_temp, bmp_press, bmp_alt;
     static TickType_t upTime;
     static uint32_t startTime, endTime;
+    
     //initialize struct
     GDQMessage_t currentMessage = {
         .sensor = SENSOR_BMP,
     };
-    while(1) {
-        // attempts to retrieve mutex
-        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
 
+    while (true)
+    {
+        // attempts to retrieve mutex
+        if (xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
             // time system
             startTime = esp_timer_get_time();
             upTime = xTaskGetTickCount();
@@ -563,7 +692,8 @@ void BMP_task(void *pvParameter) {
             xSemaphoreGive(sensor_spi_mutex);//gives back mutex
             endTime = esp_timer_get_time();
 
-            if(bmp_up) {
+            if (bmp_up)
+            {
                 // adds data to struct
                 currentMessage.BMPMessage.time = startTime;
                 // writes data to queue
@@ -601,7 +731,7 @@ void SD_task(void *pvParameter)
 
     // TODO: [NS] make these #defines
 
-    while(1)
+    while (true)
     {
         // TODO: [NS] SD SPI Mutex
         // printf("started sd...\n");
@@ -610,16 +740,18 @@ void SD_task(void *pvParameter)
         xQueueReceive(GDQ.SensorQueue, &currentMessage, portMAX_DELAY);
         
         // for now, run state machine in here:
-        if(FSM(currentMessage, fsmState, apogeeEstimate))
+        if (FSM(currentMessage, fsmState, apogeeEstimate))
         {
             // state has been updated, handle accordingly
             // if buffer full, write out
-            if(!updateSDBuffer(currentMessage, &fsmState, msgBuf, &index, sizeof(msgBuf))) {
+            if (!updateSDBuffer(currentMessage, &fsmState, msgBuf, &index, sizeof(msgBuf)))
+            {
                 xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
 
                 sdData.print(msgBuf);
                 flushCounter += index;
-                if(flushCounter >= 32E3) {
+                if (flushCounter >= 32E3)
+                {
                     sdData.flush();
                     flushCounter = 0;
                 }
@@ -644,12 +776,14 @@ void SD_task(void *pvParameter)
         TickType_t uptime = xTaskGetTickCount();
 
         // if buffer full, write out
-        if(!updateSDBuffer(currentMessage, NULL, msgBuf, &index, sizeof(msgBuf))) {
+        if (!updateSDBuffer(currentMessage, NULL, msgBuf, &index, sizeof(msgBuf)))
+        {
             xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY);
 
             sdData.print(msgBuf);
             flushCounter += index;
-            if(flushCounter >= 32E3) {
+            if (flushCounter >= 32E3)
+            {
                 sdData.flush();
                 flushCounter = 0;
             }
@@ -677,7 +811,7 @@ void LORA_task(void *pvParameter)
     static TickType_t uptime;
     static uint32_t startTime, endTime;
     LORAMessage_t currentMessage;
-    while (1)
+    while (true)
     {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         uptime = xTaskGetTickCount();
@@ -732,7 +866,7 @@ void LORA_task(void *pvParameter)
         currentMessage.apogeeEstimate = apogeeEstimate;
         currentMessage.flightState = fsmState;
 
-        if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
+        if (xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
             // write packet!
             LoRa.beginPacket();
