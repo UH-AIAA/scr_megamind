@@ -10,6 +10,8 @@
 #include <Adafruit_LSM6DSO32.h>
 
 #include "megamind_const.h"
+#include "hawkeye_fsm.h"
+#include "hawkeye_filters_simple.h"
 
 
 ////////////////////////////////
@@ -157,11 +159,4 @@ int Welford_Calibration(Welford_state *Welford, float calibration_data);
 bool calibrateIMUs(Adafruit_ADXL375* ADXL, Adafruit_LSM6DSO32* LSM, float ADXL_ACCEL_BIAS[3], float LSM_ACCEL_BIAS[3], float LSM_GYRO_BIAS[3], const int numSamples, const int divergenceThresh);
 bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_BIAS, const int numSamples, const int divergenceThresh);
 
-// low pass filter (another hawkeye preview)
-int HWK_FILT_lowPass(float raw, float* filtered, const float alpha);
-
-// TODO: state machine
 bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate);
-bool IdleToAscent(float currAccelMag, uint8_t& counter);
-bool AscentToDescent(float altUpdate, uint64_t timeUpdate, uint8_t& counter);
-bool DescentToLanded(float altUpdate, uint8_t& counter);

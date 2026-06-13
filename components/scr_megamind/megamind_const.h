@@ -14,5 +14,6 @@
 
 // state machine tunables
 #define ASCENT_THRESHOLD (40U)          // m/s^2, roughly 4Gs
-#define REQ_COUNT_STATE_CHANGE (5U)      // number of valid checks required before a state change is allowed
+#define REQ_COUNT_STATE_CHANGE (5U)     // number of valid checks required before a state change is allowed
+#define APG_NEG_VEL_THRESH (-1.5E6)       // negative velocity threshold in apogee detection
 #define LANDING_DIVERGENCE_THRESH (1)   // divergence threshold for landing detection
