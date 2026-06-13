@@ -8,4 +8,5 @@ idf_component_register(SRCS
             Adafruit_ADXL375
             Adafruit_LSM6DS
             Adafruit_BNO055
-            Adafruit_GPS)
+            Adafruit_GPS
+            hawkeye)

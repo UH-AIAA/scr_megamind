@@ -366,15 +366,6 @@ bool calibrateAltimeter(Adafruit_BMP5xx *BMP, float *BMP_ALT_BIAS, const int num
     return true;
 }
 
-int HWK_FILT_lowPass(float raw, float* filtered, const float alpha)
-{
-    // update lowpass IIR in place
-    *filtered = alpha * raw + (1 - alpha) * (*filtered);
-
-    // success
-    return 0;
-}
-
 
 // returns true if it updates state
 bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
@@ -434,7 +425,11 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
             if (useLSM)
             {
                 // feed in LSM data
-                if(IdleToAscent(accelMagLSM, eventCounter))
+                if(HWK_FSM_launchDetectAccel(accelMagLSM, 
+                                             &eventCounter, 
+                                             REQ_COUNT_STATE_CHANGE, 
+                                             ASCENT_THRESHOLD) == FSM_UPDATE
+                )
                 {
                     fsmState = FSM_ASCENT;
                     return true;
@@ -445,7 +440,11 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
             else
             {
                 // feed in ADXL data
-                if(IdleToAscent(accelMagADXL, eventCounter))
+                if(HWK_FSM_launchDetectAccel(accelMagADXL,
+                                             &eventCounter, 
+                                             REQ_COUNT_STATE_CHANGE, 
+                                             ASCENT_THRESHOLD) == FSM_UPDATE
+                )
                 {
                     fsmState = FSM_ASCENT;
                     return true;
@@ -461,7 +460,13 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
             }
             
             // now run transition function
-            if(AscentToDescent(currMsg.BMPMessage.filteredAltitude, currMsg.BMPMessage.time, eventCounter)) {
+            if(HWK_FSM_apogeeDetectAltVel(currMsg.BMPMessage.filteredAltitude,
+                                          currMsg.BMPMessage.time,
+                                          &eventCounter,
+                                          REQ_COUNT_STATE_CHANGE, 
+                                          APG_NEG_VEL_THRESH) == FSM_UPDATE
+            )
+            {
                 fsmState = FSM_DESCENT;
                 apogeeEstimate = currMsg.BMPMessage.filteredAltitude;
                 return true;
@@ -474,7 +479,12 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
             {
                 break;
             }
-            if(DescentToLanded(currMsg.BMPMessage.filteredAltitude, eventCounter)) {
+            if(HWK_FSM_landingDetectAlt(currMsg.BMPMessage.filteredAltitude,
+                                        &eventCounter,
+                                        REQ_COUNT_STATE_CHANGE * 4,
+                                        LANDING_DIVERGENCE_THRESH) == FSM_UPDATE
+            ) 
+            {
                 fsmState = FSM_LANDED;
                 return true;
             }
@@ -487,143 +497,4 @@ bool FSM(GDQMessage_t& currMsg, uint8_t& fsmState, float& apogeeEstimate)
     }
 
     return false;
-}
-
-bool IdleToAscent(float currentAccelMag, uint8_t& counter)
-{
-    // if acceleration is above launch threshold, 
-    if (currentAccelMag >= ASCENT_THRESHOLD)
-    {
-        // update counter
-        counter++;
-    } else
-    {
-        // reset counter if conditions aren't met
-        counter = 0;
-    }
-
-    // if we've seen enough high accelerations read,
-    if (counter == REQ_COUNT_STATE_CHANGE)
-    {
-        // reset counter   
-        counter = 0;
-
-        // change state
-        return true;
-    }
-
-    // otherwise, state stays the same
-    return false;
-}
-
-// more hawkeye previews
-static void HWK_UTIL_updateRingBuffer(float buffer[], const uint8_t size, uint8_t* i, float newValue)
-{
-    // update value
-    buffer[*i] = newValue;
-    *i = (*i + 1) % size;   // modulus means index will wrap around when buffer is full
-
-    return;
-}
-
-static void HWK_UTIL_unwrapRingBuffer(float inputBuffer[], float outputBuffer[], const uint8_t size, const uint8_t head)
-{
-    for (int i = 0; i < size; i++)
-    {
-        outputBuffer[i] = inputBuffer[(head + i) % size];
-    }
-
-    return;
-}
-
-// update, added it anyways, but use this later on
-/**  not adding an unwrap function, use the following pattern:
- * for(uint8_t i = head; i < size; i++)
- * {
- *     process(ring[i]);
- * }
- *
- * for(uint8_t i = 0; i < head; i++)
- * {
- *     process(ring[i]);
- * }
-**/
-
-bool AscentToDescent(float altUpdate, uint64_t timeUpdate, uint8_t& counter)
-{
-    // init static altitude array
-    static const uint8_t bufSize = REQ_COUNT_STATE_CHANGE;
-    static float altitudes[bufSize];
-    static float times[bufSize];
-    static uint8_t altI;
-    static uint8_t timeI;
-
-    // add altitude/corresponding time to ring buffer
-    HWK_UTIL_updateRingBuffer(altitudes, bufSize, &altI, altUpdate);
-    HWK_UTIL_updateRingBuffer(times, bufSize, &timeI, (float)timeUpdate);
-
-    uint8_t curr = (altI + bufSize - 1) % bufSize;
-    uint8_t prev = (curr + bufSize - 1) % bufSize;
-
-    // if altitude is increasing, reset counter
-    if(altitudes[curr] > altitudes[prev])
-    {
-        counter = 0;
-        return false;
-    }
-
-    // if altitude is decreasing, compute velocity
-    // dt in microseconds, vel in seconds
-    uint64_t dt = times[curr] - times[prev];
-    float vel = ((altitudes[curr] - altitudes[prev]) / dt) / 1E6;
-
-    // if velocity is negative enough, increase counter
-    // if not, that must just be estimation noise since we've
-    // already checked for a downward altitude trend
-    if(vel < -0.5)
-    {
-        counter++;
-    }
-
-    // have we had enough successful samples?
-    if(counter < REQ_COUNT_STATE_CHANGE)
-    {
-        return false;
-    }
-
-    // reset counter for next check
-    counter = 0;
-    return true;
-}
-
-// use BMP readings and Welford to see if we're on the ground
-bool DescentToLanded(float altUpdate, uint8_t& counter)
-{
-    static Welford_state altState;
-
-    // update running average
-    Welford_Calibration(&altState, altUpdate);
-
-    // check variance:
-    if (altState.variance < LANDING_DIVERGENCE_THRESH)
-    {
-        counter++;
-    }
-    else
-    {
-        // reset state and counter
-        counter = 0;
-        memset(&altState, 0, sizeof(Welford_state));
-        return false;
-    }
-
-    // have we ran long enough?
-    if (counter < 4 * REQ_COUNT_STATE_CHANGE)
-    {
-        return false;
-    }
-
-    // reset counter and return true
-    counter = 0;
-    return true;
 }
