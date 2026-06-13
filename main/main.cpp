@@ -56,6 +56,10 @@ float BMP_ALT_BIAS;
 
 //SPI mutex
 TaskHandle_t LORA_handle;
+TaskHandle_t ADXL_handle;
+TaskHandle_t BNO_handle;
+TaskHandle_t LSM_handle;
+TaskHandle_t BMP_handle;
 static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
 static SemaphoreHandle_t isqc_sensor_mutex;
@@ -271,7 +275,7 @@ extern "C" void app_main()
         NULL,
         4,
         NULL,
-        1
+        0
     );
 
     xTaskCreatePinnedToCore(
@@ -280,7 +284,7 @@ extern "C" void app_main()
         5000,
         NULL,
         5,
-        NULL,
+        &ADXL_handle,
         0
     );
 
@@ -290,7 +294,7 @@ extern "C" void app_main()
         5000,
         NULL,
         2,
-        NULL,
+        &BNO_handle,
         0
     );
 
@@ -300,14 +304,14 @@ extern "C" void app_main()
         5000,
         NULL,
         3,
-        NULL,
+        &LSM_handle,
         0
     );
 
     xTaskCreatePinnedToCore(
         BMP_task,
         "BMP_task", 5000, NULL, 4,
-        NULL,
+        &BMP_handle,
         0
     );
 }
@@ -380,7 +384,7 @@ void GPS_task(void *pvParameter) {
             vTaskDelayUntil(&lastWake, period);
             
             // TODO: [NS] make LORA_task eligible to run
-        // xTaskNotifyGive(LORA_handle);
+            xTaskNotifyGive(LORA_handle);
     }
 }
 
@@ -640,6 +644,18 @@ void SD_task(void *pvParameter)
             } 
            
         }
+
+        if(fsmState == FSM_LANDED){
+            // if returns false, flight over!
+            sdData.close();
+            xSemaphoreGive(sd_lora_spi_mutex);
+            vTaskDelete(ADXL_handle);
+            vTaskDelete(BNO_handle);
+            vTaskDelete(LSM_handle);
+            vTaskDelete(BMP_handle);
+            vTaskDelete(NULL);
+        }
+        
         uint32_t startTime = esp_timer_get_time();
         TickType_t uptime = xTaskGetTickCount();
 
@@ -690,10 +706,10 @@ void LORA_task(void *pvParameter)
         currentMessage.ADXL_accel[2] = (int16_t)(GDQ.LatestADXLMsg.acceleration[2] * 1000);
 
         currentMessage.BNO_time = GDQ.LatestBNOMsg.uptime;
-        currentMessage.BNO_quat[0] = (int16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
-        currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
-        currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
-        currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
+        // currentMessage.BNO_quat[0] = (int16_t)(GDQ.LatestBNOMsg.quaternion[0] * 1000);
+        // currentMessage.BNO_quat[1] = (int16_t)(GDQ.LatestBNOMsg.quaternion[1] * 1000);
+        // currentMessage.BNO_quat[2] = (int16_t)(GDQ.LatestBNOMsg.quaternion[2] * 1000);
+        // currentMessage.BNO_quat[3] = (int16_t)(GDQ.LatestBNOMsg.quaternion[3] * 1000);
 
         currentMessage.BNO_euler[0] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[0] * 1000);
         currentMessage.BNO_euler[1] = (int16_t)(GDQ.LatestBNOMsg.euler_orientation[1] * 1000);
@@ -713,7 +729,9 @@ void LORA_task(void *pvParameter)
         currentMessage.LSM_accel[1] = (int16_t)(GDQ.LatestLSMMsg.acceleration[1] * 1000);
         currentMessage.LSM_accel[2] = (int16_t)(GDQ.LatestLSMMsg.acceleration[2] * 1000);
 
-        // TODO: [NS] Fix this by adding the rest of the data
+        currentMessage.LSM_gyro[0] = (int16_t)(GDQ.LatestLSMMsg.gyro[0] * 1000);
+        currentMessage.LSM_gyro[1] = (int16_t)(GDQ.LatestLSMMsg.gyro[1] * 1000);
+        currentMessage.LSM_gyro[2] = (int16_t)(GDQ.LatestLSMMsg.gyro[2] * 1000);
 
         currentMessage.BMP_time = GDQ.LatestBMPMsg.time;
         currentMessage.BMP_temp = (int16_t)(GDQ.LatestBMPMsg.temp);
@@ -737,7 +755,7 @@ void LORA_task(void *pvParameter)
             // write packet!
             LoRa.beginPacket();
             LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
-            LoRa.endPacket(true);
+            LoRa.endPacket();
 
             xSemaphoreGive(sd_lora_spi_mutex);
 

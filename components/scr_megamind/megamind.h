@@ -52,6 +52,7 @@ typedef struct BMPMessage {
 
 #pragma pack(push, 1)
 typedef struct LORAMessage {
+    char callsign[7] = "KJ5KND";
     uint64_t BMP_time;
     int16_t BMP_temp, BMP_pressure, BMP_altitude;
 
@@ -63,7 +64,7 @@ typedef struct LORAMessage {
     int16_t ADXL_accel[3];
 
     uint64_t BNO_time;
-    int16_t BNO_quat[4];
+    // int16_t BNO_quat[4];
     int16_t BNO_euler[3];
     int16_t BNO_magnet[3];
     int16_t BNO_accel[3];
