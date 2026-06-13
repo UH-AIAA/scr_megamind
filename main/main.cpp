@@ -58,25 +58,13 @@ float BMP_ALT_BIAS;
 TaskHandle_t LORA_handle;
 static SemaphoreHandle_t sensor_spi_mutex;
 static SemaphoreHandle_t sd_lora_spi_mutex;
+static SemaphoreHandle_t isqc_sensor_mutex;
 
 GDQ_t GDQ;
 uint8_t fsmState = 0;
 float apogeeEstimate = 0;
 
 void init_spi() {
-    // SPI2.begin(VSPI_SCLK_PIN,
-    //            VSPI_MISO_PIN,
-    //            VSPI_MOSI_PIN,
-    //            -1);
-
-    // printf("Trying SD.begin...\n");
-
-    // bool ok = SD.begin(SD_CS, SPI2, 20000000);
-
-    // printf("SD.begin returned %d\n", ok);
-
-    // while(1);
-
     // use Arduino SPI (for now...)
     printf("made it into init_spi\n");
     bool spiStatus = SPI.begin(SPI_SCLK_PIN, SPI_MISO_PIN, SPI_MOSI_PIN, -1);
@@ -85,8 +73,6 @@ void init_spi() {
     BMP.begin(BMP390_CS, &SPI);
     ADXL.begin();
     LSM.begin_SPI(LSM6DSO32_CS, &SPI);
-
-    // TODO: [NS] add SD/Lora SPI
 
     // sensor setup
     BMP.setPressureOversampling(BMP5XX_OVERSAMPLING_1X);
@@ -111,7 +97,7 @@ void init_spi() {
         printf("SPI2 failed\n");
         }
     }
-    if(!SD.begin(SD_CS, SPI2, 20E6))   // TODO: [NS] make this a #define
+    if(!SD.begin(SD_CS, SPI2, SD_FREQ))
     {
         printf("SD never began!\n");
         while (1) {
@@ -226,7 +212,8 @@ extern "C" void app_main()
 
     // initialize Mutex
     sensor_spi_mutex = xSemaphoreCreateMutex();
-    sd_lora_spi_mutex = xSemaphoreCreateMutex();  
+    sd_lora_spi_mutex = xSemaphoreCreateMutex();
+    isqc_sensor_mutex = xSemaphoreCreateMutex();
 
     // TODO: [add calibration functions here for LSM] [NS]
     while(!calibrateIMUs(&ADXL, &LSM, ADXL_ACCEL_BIAS, LSM_ACCEL_BIAS, LSM_GYRO_BIAS, NUM_CALIBRATION_SAMPLES, CALIBRATION_DIVERGE_THRESH))
@@ -339,42 +326,48 @@ void GPS_task(void *pvParameter) {
         uint32_t timeout = startms + 200000;
 
         while (esp_timer_get_time() < timeout) {
-            while (GPS.available() && esp_timer_get_time() < timeout) {
-                GPS.read();
-                //choke point is from GPS.read();
-                //can only read 1 byte at a time
-                if (GPS.newNMEAreceived()) {
-                    if (!GPS.parse(GPS.lastNMEA())) {
-                        continue;
-                    }
+            if(xSemaphoreTake(isqc_sensor_mutex, portMAX_DELAY) == pdTRUE)
+            {
+                while (GPS.available() && esp_timer_get_time() < timeout) {
+                    GPS.read();
+                    //choke point is from GPS.read();
+                    //can only read 1 byte at a time
+                    if (GPS.newNMEAreceived()) {
+                        if (!GPS.parse(GPS.lastNMEA())) {
+                            continue;
+                        }
 
-                    if (GPS.fix && GPS.satellites > 0) {
-                        printf("Satellites: %i\n", GPS.satellites);
-                        printf("Latitude: %f, %c\n", GPS.latitude,GPS.lat);
-                        printf("Longitude: %f, %c\n", GPS.longitude, GPS.lon);
-                        printf("Altitude: %f [meters]\n", GPS.altitude);
+                        if (GPS.fix && GPS.satellites > 0) {
+                            printf("Satellites: %i\n", GPS.satellites);
+                            printf("Latitude: %f, %c\n", GPS.latitude,GPS.lat);
+                            printf("Longitude: %f, %c\n", GPS.longitude, GPS.lon);
+                            printf("Altitude: %f [meters]\n", GPS.altitude);
 
-                        //Collects speed over the ground, not sure how useful it'll be
-                        //printf("Speed (knots): %f\n" GPS.speed);
+                            //Collects speed over the ground, not sure how useful it'll be
+                            //printf("Speed (knots): %f\n" GPS.speed);
 
-                        // add data to struct
-                        currentMessage.GPSMessage.time = startms;
-                        currentMessage.GPSMessage.satellites = GPS.satellites;
-                        currentMessage.GPSMessage.latitude = GPS.latitude;
-                        currentMessage.GPSMessage.longitude = GPS.longitude;
-                        currentMessage.GPSMessage.lat = GPS.lat;
-                        currentMessage.GPSMessage.lon = GPS.lon;
-                        currentMessage.GPSMessage.altitude = GPS.altitude;
+                            // add data to struct
+                            currentMessage.GPSMessage.time = startms;
+                            currentMessage.GPSMessage.satellites = GPS.satellites;
+                            currentMessage.GPSMessage.latitude = GPS.latitude;
+                            currentMessage.GPSMessage.longitude = GPS.longitude;
+                            currentMessage.GPSMessage.lat = GPS.lat;
+                            currentMessage.GPSMessage.lon = GPS.lon;
+                            currentMessage.GPSMessage.altitude = GPS.altitude;
 
-                        //write message to queue
-                        GDQ.LatestGPSMsg = currentMessage.GPSMessage;
-                        xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
-                        // if we found data, go to end of function
-                        // we don't want to print out the same data multiple times
-                        goto end;
+                            //write message to queue
+                            GDQ.LatestGPSMsg = currentMessage.GPSMessage;
+                            xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
+                            // if we found data, go to end of function
+                            // we don't want to print out the same data multiple times
+
+                            xSemaphoreGive(isqc_sensor_mutex);
+                            goto end;
+                        }
                     }
                 }
             }
+            xSemaphoreGive(isqc_sensor_mutex);
         }
 
         printf("GPS no fix!\n");
@@ -406,14 +399,16 @@ void ADXL_task(void *pvParameter) {
         uptime = xTaskGetTickCount();
 
         // attempt to take mutex, code inside blocked until mutex is released
-        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE){
+        if(xSemaphoreTake(sensor_spi_mutex, portMAX_DELAY) == pdTRUE)
+        {
             // if success,
             adxl_up = ReadADXL(&ADXL, &currentMessage, ADXL_ACCEL_BIAS);
             // gives the mutex back
             xSemaphoreGive(sensor_spi_mutex);
         }
 
-        if (adxl_up) {
+        if (adxl_up) 
+        {
             currentMessage.ADXLMessage.time = startTime;
             // write data to queue
             xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
@@ -454,15 +449,20 @@ void BNO_task(void *pvParameter) {
         startTime = esp_timer_get_time();
         uptime = xTaskGetTickCount();
 
-        if(ReadBNO(&BNO, &currentMessage))
+        if(xSemaphoreTake(isqc_sensor_mutex, portMAX_DELAY) == pdTRUE)
         {
-            currentMessage.BNOMessage.uptime = startTime;
+            if(ReadBNO(&BNO, &currentMessage))
+            {
+                currentMessage.BNOMessage.uptime = startTime;
 
-            //write message to queue
-            xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
-            GDQ.LatestBNOMsg = currentMessage.BNOMessage;
+                //write message to queue
+                xQueueSendToBack(GDQ.SensorQueue, &currentMessage, 0);
+                GDQ.LatestBNOMsg = currentMessage.BNOMessage;
+            }
+
+            xSemaphoreGive(isqc_sensor_mutex);
         }
-        
+
         endTime = esp_timer_get_time();
 
         #ifdef DEBUG
