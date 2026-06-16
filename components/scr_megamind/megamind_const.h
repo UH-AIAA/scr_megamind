@@ -1,5 +1,5 @@
 // hardware tunables
-#define LORA_FREQ (915E6)
+#define LORA_FREQ (426.58E6)
 #define SD_FREQ (20E6)
 
 // memory tunables
