@@ -25,7 +25,7 @@
 #include "Adafruit_LSM6DSO32.h"
 #include "Adafruit_BNO055.h"
 #include "Adafruit_GPS.h"
-#include "LoRa.h"
+// #include "LoRa.h"
 #include "RTClib.h"
 
 // SRAD Imports
@@ -136,14 +136,14 @@ void init_spi() {
     sdData.println(rtctime);
     sdData.println(header);
 
-    // LORA setup (Thanh's work!)
-    LoRa.setSPI(SPI2);
-    LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
-    if(!LoRa.begin(LORA_FREQ))
-    {
-        printf("LoRa.begin failed!\n");
-        while (1) {};
-    }
+    // // LORA setup (Thanh's work!)
+    // LoRa.setSPI(SPI2);
+    // LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
+    // if(!LoRa.begin(LORA_FREQ))
+    // {
+    //     printf("LoRa.begin failed!\n");
+    //     while (1) {};
+    // }
 }
 
 void init_I2C() {
@@ -246,16 +246,16 @@ extern "C" void app_main()
         NULL                // [in] task handle (leave null)
     );
 */
-    // create tasks!
-    xTaskCreatePinnedToCore(
-        LORA_task,
-        "LORA_task",
-        10000,
-        NULL,
-        5,
-        &LORA_handle,
-        1
-    );
+    // // create tasks!
+    // xTaskCreatePinnedToCore(
+    //     LORA_task,
+    //     "LORA_task",
+    //     10000,
+    //     NULL,
+    //     5,
+    //     &LORA_handle,
+    //     1
+    // );
 
     xTaskCreatePinnedToCore(
         GPS_task,
@@ -326,7 +326,7 @@ void GPS_task(void *pvParameter) {
 
     while(true){
         uint32_t startms = esp_timer_get_time();
-        xTaskNotifyGive(LORA_handle);
+        // xTaskNotifyGive(LORA_handle);
         uint32_t timeout = startms + 200000;
 
         while (esp_timer_get_time() < timeout) {
@@ -384,7 +384,7 @@ void GPS_task(void *pvParameter) {
             vTaskDelayUntil(&lastWake, period);
             
             // TODO: [NS] make LORA_task eligible to run
-            xTaskNotifyGive(LORA_handle);
+            // xTaskNotifyGive(LORA_handle);
     }
 }
 
@@ -695,7 +695,7 @@ void LORA_task(void *pvParameter)
     LORAMessage_t currentMessage;
     while (1)
     {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        // ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         uptime = xTaskGetTickCount();
         startTime = esp_timer_get_time();
 
@@ -753,9 +753,9 @@ void LORA_task(void *pvParameter)
         if(xSemaphoreTake(sd_lora_spi_mutex, portMAX_DELAY) == pdTRUE)
         {
             // write packet!
-            LoRa.beginPacket();
-            LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
-            LoRa.endPacket();
+            // LoRa.beginPacket();
+            // LoRa.write((uint8_t*)&currentMessage, sizeof(LORAMessage_t));
+            // LoRa.endPacket();
 
             xSemaphoreGive(sd_lora_spi_mutex);
 
